@@ -1,0 +1,1164 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}Analyse Indices - LOOK UP BRVM{% endblock %}
+{% block page_title %}
+<i class="bi bi-activity me-2"></i>Analyse Indices
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ===== Onglets ===== */
+    .ai-tabs {
+        display: flex; gap: 4px; margin-bottom: 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .ai-tab {
+        background: transparent; border: 1px solid transparent; border-bottom: none;
+        color: var(--text-secondary); padding: 10px 22px;
+        font-size: 0.92rem; font-weight: 500; cursor: pointer;
+        border-radius: 10px 10px 0 0; transition: all 0.15s;
+        display: flex; align-items: center; gap: 8px;
+        margin-bottom: -1px;
+    }
+    .ai-tab:hover { color: var(--primary); background: rgba(79,140,255,0.05); }
+    .ai-tab.active {
+        color: var(--primary); background: var(--card-bg);
+        border-color: var(--border-color);
+        border-bottom: 1px solid var(--card-bg);
+        font-weight: 600;
+    }
+    .ai-tab-content { display: none; }
+    .ai-tab-content.active { display: block; }
+
+    /* ===== Santé du marché ===== */
+    .health-layout {
+        display: grid; grid-template-columns: 300px 1fr;
+        gap: 1.25rem;
+    }
+    .health-sidebar {
+        position: sticky; top: calc(var(--top-bar-height) + 24px);
+        height: fit-content; display: flex; flex-direction: column; gap: 1rem;
+    }
+    .health-panel {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        border-radius: 14px; padding: 16px;
+    }
+    .health-panel h3 {
+        font-size: 0.95rem; font-weight: 600; margin: 0 0 12px;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .param-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .param-row label { font-size: 0.78rem; color: var(--text-secondary); font-weight: 500; }
+    .param-row input[type="number"] {
+        width: 100%; padding: 6px 10px; font-size: 0.85rem;
+        background: var(--dark-bg); border: 1px solid var(--border-color);
+        border-radius: 8px; color: var(--text-primary);
+    }
+    .param-row input[type="range"] { width: 100%; accent-color: var(--primary); }
+    .weight-value { font-weight: 600; color: var(--primary); font-size: 0.85rem; }
+    .panel-divider { height:1px; background: var(--border-color); margin: 10px 0 12px; }
+    .btn-apply {
+        width: 100%; padding: 8px; background: var(--primary); color: white;
+        border: none; border-radius: 8px; font-weight: 500; font-size: 0.85rem;
+        cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-apply:hover:not(:disabled) { opacity: 0.9; }
+    .btn-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Fear & Greed gauge */
+    .fg-card {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        border-radius: 14px; padding: 24px; margin-bottom: 1.25rem;
+    }
+    .fg-gauge-wrap {
+        display: grid; grid-template-columns: 320px 1fr;
+        gap: 24px; align-items: center;
+    }
+    .fg-gauge {
+        position: relative; width: 320px; height: 200px; margin: 0 auto;
+    }
+    .fg-score-display {
+        position: absolute; left: 0; right: 0; bottom: 6px;
+        text-align: center;
+    }
+    .fg-score-display .fg-num {
+        font-size: 3rem; font-weight: 700; line-height: 1;
+    }
+    .fg-score-display .fg-lbl {
+        font-size: 0.95rem; font-weight: 600; margin-top: 4px;
+    }
+    .fg-components { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .fg-comp {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 12px 14px; border-radius: 10px;
+    }
+    .fg-comp-head {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 6px;
+    }
+    .fg-comp-name { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+    .fg-comp-weight {
+        font-size: 0.7rem; color: var(--text-secondary);
+        background: rgba(79,140,255,0.1); padding: 2px 8px; border-radius: 10px;
+    }
+    .fg-comp-value {
+        font-size: 1.5rem; font-weight: 700; line-height: 1;
+        margin-bottom: 4px;
+    }
+    .fg-comp-bar {
+        height: 6px; background: var(--border-color); border-radius: 3px;
+        overflow: hidden; margin: 6px 0 6px;
+    }
+    .fg-comp-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+    .fg-comp-detail { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.3; }
+
+    /* Régime card */
+    .regime-current {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        border-radius: 14px; padding: 20px; margin-bottom: 1.25rem;
+    }
+    .regime-current-grid {
+        display: grid; grid-template-columns: 200px 1fr;
+        gap: 20px; align-items: center;
+    }
+    .regime-badge {
+        display: flex; flex-direction: column; align-items: center;
+        padding: 16px; border-radius: 12px; color: white;
+        text-align: center;
+    }
+    .regime-badge .rb-icon { font-size: 2.2rem; margin-bottom: 4px; }
+    .regime-badge .rb-label { font-size: 1rem; font-weight: 700; }
+    .regime-badge .rb-ticker { font-size: 0.78rem; opacity: 0.85; margin-top: 2px; }
+    .regime-mm-grid {
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    }
+    .regime-mm-cell {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 10px 12px; border-radius: 10px; text-align: center;
+    }
+    .regime-mm-cell .lbl { font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 4px; }
+    .regime-mm-cell .val { font-size: 1.05rem; font-weight: 700; }
+
+    .regime-all-table { width: 100%; font-size: 0.85rem; }
+    .regime-all-table th, .regime-all-table td { padding: 8px 10px; border-bottom: 1px solid var(--border-color); }
+    .regime-all-table th { background: var(--primary); color: white; font-size: 0.78rem; font-weight: 600; text-align: left; }
+    .regime-all-table th:not(:first-child), .regime-all-table td:not(:first-child) { text-align: right; }
+    .regime-pill {
+        display: inline-block; padding: 3px 10px; border-radius: 10px;
+        font-size: 0.72rem; font-weight: 600; color: white;
+    }
+
+    .formula-box {
+        background: rgba(79,140,255,0.06); border-left: 3px solid var(--primary);
+        padding: 8px 12px; border-radius: 0 8px 8px 0;
+        font-family: 'Courier New', monospace; font-size: 0.78rem;
+        margin: 6px 0; color: var(--text-primary);
+    }
+    .interpretation-box {
+        background: rgba(246,195,67,0.06); border-left: 3px solid var(--warning);
+        padding: 6px 12px; border-radius: 0 8px 8px 0;
+        font-size: 0.76rem; color: var(--text-secondary);
+        margin: 6px 0 8px;
+    }
+
+    .regime-legend {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        border-radius: 14px; padding: 16px; font-size: 0.82rem;
+    }
+    .regime-legend h4 { font-size: 0.9rem; margin: 0 0 10px; }
+    .legend-row {
+        display: flex; align-items: center; gap: 10px;
+        padding: 4px 0;
+    }
+    .legend-dot { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
+
+    @media (max-width: 1200px) {
+        .health-layout { grid-template-columns: 1fr; }
+        .health-sidebar { position: static; }
+        .fg-gauge-wrap { grid-template-columns: 1fr; }
+        .regime-current-grid { grid-template-columns: 1fr; }
+        .regime-mm-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- ========== ONGLETS ========== -->
+<div class="ai-tabs">
+    <button class="ai-tab active" data-tab="tab-comp" onclick="switchAITab('tab-comp')">
+        <i class="bi bi-columns-gap"></i> Vue comparative
+    </button>
+    <button class="ai-tab" data-tab="tab-health" onclick="switchAITab('tab-health')">
+        <i class="bi bi-heart-pulse"></i> Santé du marché
+    </button>
+</div>
+
+<!-- ========== ONGLET 1 : VUE COMPARATIVE ========== -->
+<div id="tab-comp" class="ai-tab-content active">
+<!-- Vue d'ensemble : bar chart + base 100 (filtre période commun) -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-columns-gap me-2"></i>Vue d'ensemble des indices</span>
+        <div class="time-filter-group" id="indicesTimeFilter">
+            <button class="time-filter-btn" data-period="1j">1J</button>
+            <button class="time-filter-btn" data-period="1s">1S</button>
+            <button class="time-filter-btn" data-period="1m">1M</button>
+            <button class="time-filter-btn" data-period="3m">3M</button>
+            <button class="time-filter-btn" data-period="6m">6M</button>
+            <button class="time-filter-btn active" data-period="1a">1A</button>
+            <button class="time-filter-btn" data-period="ytd">YTD</button>
+            <button class="time-filter-btn" data-period="3a">3A</button>
+            <button class="time-filter-btn" data-period="5a">5A</button>
+            <button class="time-filter-btn" data-period="origine">ORIGINE</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="small text-muted mb-2">Performances sur la période</div>
+                <div class="chart-container" style="height: 360px;">
+                    <canvas id="chartIndicesBar"></canvas>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+                    <span class="small text-muted">Comparaison en base 100</span>
+                    <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="base100SelectAll">Tout</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="base100SelectNone">Aucun</button>
+                        <div class="dropdown">
+                            <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <i class="bi bi-funnel me-1"></i>Indices <span class="badge bg-primary-soft ms-1" id="base100Count">0</span>
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 220px; max-height: 320px; overflow-y: auto;" id="base100Menu">
+                                <!-- rempli en JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container" style="height: 360px;">
+                    <canvas id="chartIndicesBase100"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tableau des performances multi-périodes -->
+<div class="card mt-4">
+    <div class="card-header"><i class="bi bi-table me-2"></i>Performances des indices</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table sortable mb-0" id="tableIndicesPerf">
+                <thead>
+                    <tr>
+                        <th rowspan="2" data-sort>Indice</th>
+                        <th rowspan="2" class="text-end" data-sort>Dernier</th>
+                        <th colspan="9" class="text-center border-start">Performances glissantes</th>
+                        <th colspan="5" class="text-center border-start">Performances calendaires</th>
+                    </tr>
+                    <tr>
+                        <th class="text-end border-start" data-sort>1J</th>
+                        <th class="text-end" data-sort>1S</th>
+                        <th class="text-end" data-sort>1M</th>
+                        <th class="text-end" data-sort>3M</th>
+                        <th class="text-end" data-sort>6M</th>
+                        <th class="text-end" data-sort>1A</th>
+                        <th class="text-end" data-sort>3A</th>
+                        <th class="text-end" data-sort>5A</th>
+                        <th class="text-end" data-sort>ORIGINE</th>
+                        <th class="text-end border-start" data-sort>WTD</th>
+                        <th class="text-end" data-sort>MTD</th>
+                        <th class="text-end" data-sort>QTD</th>
+                        <th class="text-end" data-sort>STD</th>
+                        <th class="text-end" data-sort>YTD</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in indices_perf %}
+                    <tr>
+                        <td>
+                            <span class="text-primary fw-bold">{{ item.nom }}</span>
+                            <div class="text-muted small" style="font-size:.75em">{{ item.ticker }}</div>
+                        </td>
+                        <td class="text-end fw-bold">{{ item.cloture|format_number:2 }}</td>
+                        <td class="text-end border-start"><span class="{{ item.var_1j|color_variation }}">{{ item.var_1j|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_1s|color_variation }}">{{ item.var_1s|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_1m|color_variation }}">{{ item.var_1m|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_3m|color_variation }}">{{ item.var_3m|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_6m|color_variation }}">{{ item.var_6m|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_1a|color_variation }}">{{ item.var_1a|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_3a|color_variation }}">{{ item.var_3a|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_5a|color_variation }}">{{ item.var_5a|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_origine|color_variation }}">{{ item.var_origine|format_pct }}</span></td>
+                        <td class="text-end border-start"><span class="{{ item.var_wtd|color_variation }}">{{ item.var_wtd|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_mtd|color_variation }}">{{ item.var_mtd|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_qtd|color_variation }}">{{ item.var_qtd|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_std|color_variation }}">{{ item.var_std|format_pct }}</span></td>
+                        <td class="text-end"><span class="{{ item.var_ytd|color_variation }}">{{ item.var_ytd|format_pct }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div><!-- /tab-comp -->
+
+<!-- ========== ONGLET 2 : SANTÉ DU MARCHÉ ========== -->
+<div id="tab-health" class="ai-tab-content">
+<div class="health-layout">
+    <!-- Sidebar paramètres -->
+    <div class="health-sidebar">
+        <!-- Poids F&G -->
+        <div class="health-panel">
+            <h3><i class="bi bi-sliders"></i> Poids Fear & Greed</h3>
+            <div class="param-row">
+                <label>w₁ — Breadth : <span class="weight-value" id="w1Val">1.0</span></label>
+                <input type="range" id="fgW1" min="0" max="3" step="0.1" value="1.0">
+            </div>
+            <div class="param-row">
+                <label>w₂ — Volatilité : <span class="weight-value" id="w2Val">1.0</span></label>
+                <input type="range" id="fgW2" min="0" max="3" step="0.1" value="1.0">
+            </div>
+            <div class="param-row">
+                <label>w₃ — Momentum : <span class="weight-value" id="w3Val">1.0</span></label>
+                <input type="range" id="fgW3" min="0" max="3" step="0.1" value="1.0">
+            </div>
+            <div class="param-row">
+                <label>w₄ — Dispersion : <span class="weight-value" id="w4Val">1.0</span></label>
+                <input type="range" id="fgW4" min="0" max="3" step="0.1" value="1.0">
+            </div>
+            <div class="panel-divider"></div>
+            <div class="param-row">
+                <label>Fenêtre Breadth (jours)</label>
+                <input type="number" id="fgBreadthWin" value="20" min="5" max="120">
+            </div>
+            <div class="param-row">
+                <label>Vol — court (jours)</label>
+                <input type="number" id="fgVolShort" value="20" min="5" max="60">
+            </div>
+            <div class="param-row">
+                <label>Vol — long (jours)</label>
+                <input type="number" id="fgVolLong" value="90" min="30" max="252">
+            </div>
+            <div class="param-row">
+                <label>Fenêtre Momentum (jours)</label>
+                <input type="number" id="fgMomWin" value="20" min="5" max="252">
+            </div>
+            <div class="param-row">
+                <label>Lookback Dispersion (jours)</label>
+                <input type="number" id="fgDispLook" value="252" min="60" max="1260">
+            </div>
+            <button class="btn-apply" id="fgApplyBtn" onclick="loadFearGreed()">
+                <i class="bi bi-arrow-clockwise"></i> Recalculer F&G
+            </button>
+        </div>
+
+        <!-- Paramètres Régime MM -->
+        <div class="health-panel">
+            <h3><i class="bi bi-graph-up"></i> Régime — Moyennes mobiles</h3>
+            <div class="param-row">
+                <label>MM courte (jours)</label>
+                <input type="number" id="mmShort" value="20" min="2" max="100">
+            </div>
+            <div class="param-row">
+                <label>MM moyenne (jours)</label>
+                <input type="number" id="mmMid" value="50" min="10" max="200">
+            </div>
+            <div class="param-row">
+                <label>MM longue (jours)</label>
+                <input type="number" id="mmLong" value="200" min="50" max="500">
+            </div>
+            <div class="param-row">
+                <label>Indice (graphique)</label>
+                <select id="mmTicker" class="form-select form-select-sm">
+                    {% for ind in indices %}
+                    <option value="{{ ind.ticker }}" {% if ind.ticker == "BRVMC" %}selected{% endif %}>{{ ind.ticker }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn-apply" onclick="loadRegime()">
+                <i class="bi bi-arrow-clockwise"></i> Recalculer Régime
+            </button>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div>
+        <!-- Fear & Greed -->
+        <div class="fg-card">
+            <h3 style="margin: 0 0 16px;"><i class="bi bi-speedometer2 me-2"></i>Indicateur Fear & Greed — BRVM</h3>
+            <div class="fg-gauge-wrap">
+                <div>
+                    <div class="fg-gauge">
+                        <canvas id="fgGaugeCanvas" width="320" height="200"></canvas>
+                        <div class="fg-score-display">
+                            <div class="fg-num" id="fgScoreNum" style="color: var(--text-secondary);">--</div>
+                            <div class="fg-lbl" id="fgScoreLabel" style="color: var(--text-secondary);">Chargement…</div>
+                        </div>
+                    </div>
+                    <div class="text-center text-muted mt-2" style="font-size:.78rem;" id="fgDate"></div>
+                </div>
+
+                <div class="fg-components">
+                    <div class="fg-comp" id="fgCompBreadth">
+                        <div class="fg-comp-head">
+                            <span class="fg-comp-name">S_breadth — Dynamique</span>
+                            <span class="fg-comp-weight" id="fgWeightBreadth">w₁=1.0</span>
+                        </div>
+                        <div class="fg-comp-value" id="fgValBreadth">--</div>
+                        <div class="fg-comp-bar"><div class="fg-comp-bar-fill" id="fgBarBreadth" style="width:0%"></div></div>
+                        <div class="fg-comp-detail" id="fgDetBreadth">% titres haussiers sur N jours</div>
+                    </div>
+                    <div class="fg-comp" id="fgCompVol">
+                        <div class="fg-comp-head">
+                            <span class="fg-comp-name">S_vol — Volatilité</span>
+                            <span class="fg-comp-weight" id="fgWeightVol">w₂=1.0</span>
+                        </div>
+                        <div class="fg-comp-value" id="fgValVol">--</div>
+                        <div class="fg-comp-bar"><div class="fg-comp-bar-fill" id="fgBarVol" style="width:0%"></div></div>
+                        <div class="fg-comp-detail" id="fgDetVol">Ratio vol court / long</div>
+                    </div>
+                    <div class="fg-comp" id="fgCompMom">
+                        <div class="fg-comp-head">
+                            <span class="fg-comp-name">S_mom — Momentum</span>
+                            <span class="fg-comp-weight" id="fgWeightMom">w₃=1.0</span>
+                        </div>
+                        <div class="fg-comp-value" id="fgValMom">--</div>
+                        <div class="fg-comp-bar"><div class="fg-comp-bar-fill" id="fgBarMom" style="width:0%"></div></div>
+                        <div class="fg-comp-detail" id="fgDetMom">Rang percentile rendement</div>
+                    </div>
+                    <div class="fg-comp" id="fgCompDisp">
+                        <div class="fg-comp-head">
+                            <span class="fg-comp-name">S_disp — Dispersion</span>
+                            <span class="fg-comp-weight" id="fgWeightDisp">w₄=1.0</span>
+                        </div>
+                        <div class="fg-comp-value" id="fgValDisp">--</div>
+                        <div class="fg-comp-bar"><div class="fg-comp-bar-fill" id="fgBarDisp" style="width:0%"></div></div>
+                        <div class="fg-comp-detail" id="fgDetDisp">Rang inversé écart-type cross-section</div>
+                    </div>
+                </div>
+            </div>
+
+            <details style="margin-top:18px;">
+                <summary style="cursor:pointer; color: var(--text-secondary); font-size: 0.85rem;">
+                    <i class="bi bi-info-circle me-1"></i>Méthodologie détaillée
+                </summary>
+                <div style="margin-top: 12px;">
+                    <p style="font-size: 0.82rem; color: var(--text-secondary);"><strong>Score F&G</strong> = (w₁×S_breadth + w₂×S_vol + w₃×S_mom + w₄×S_disp) / Σwᵢ</p>
+
+                    <p style="font-size:0.82rem; margin: 10px 0 4px;"><strong>a. S_breadth</strong> — % actions haussières sur 20 jours</p>
+                    <div class="formula-box">S_breadth = (nb titres dont rendement₂₀ⱼ &gt; 0) / nb titres total × 100</div>
+                    <div class="interpretation-box"><strong>💡</strong> 50% = marché équilibré · &gt;70% = forte participation (Greed) · &lt;30% = panique (Fear)</div>
+
+                    <p style="font-size:0.82rem; margin: 10px 0 4px;"><strong>b. S_vol</strong> — Ratio de volatilité</p>
+                    <div class="formula-box">S_vol = clip(100 × (1 − vol_court / vol_long) × 2 + 50, 0, 100)</div>
+                    <div class="interpretation-box"><strong>💡</strong> Si vol_court &lt; vol_long → marché calme → score élevé (Greed). Spike vol → Fear.</div>
+
+                    <p style="font-size:0.82rem; margin: 10px 0 4px;"><strong>c. S_mom</strong> — Momentum relatif</p>
+                    <div class="formula-box">S_mom = P(rendement_historique ≤ rendement_actuel) × 100</div>
+                    <div class="interpretation-box"><strong>💡</strong> Score 80 → le rendement dépasse 80% des rendements historiques → Greed.</div>
+
+                    <p style="font-size:0.82rem; margin: 10px 0 4px;"><strong>d. S_disp</strong> — Dispersion journalière</p>
+                    <div class="formula-box">S_disp = P(disp_historique ≥ disp_actuelle) × 100</div>
+                    <div class="interpretation-box"><strong>💡</strong> Faible dispersion (titres groupés) → Greed. Forte dispersion → panique sélective → Fear.</div>
+                </div>
+            </details>
+        </div>
+
+        <!-- Régime actuel -->
+        <div class="regime-current">
+            <h3 style="margin: 0 0 14px;"><i class="bi bi-flag me-2"></i>Régime actuel — <span id="regimeTickerLabel">BRVMC</span></h3>
+            <div class="regime-current-grid">
+                <div class="regime-badge" id="regimeBadge" style="background: #6b7280;">
+                    <div class="rb-icon"><i class="bi bi-hourglass"></i></div>
+                    <div class="rb-label" id="regimeBadgeLabel">--</div>
+                    <div class="rb-ticker" id="regimeBadgeTicker">--</div>
+                </div>
+                <div class="regime-mm-grid">
+                    <div class="regime-mm-cell">
+                        <div class="lbl">Prix</div>
+                        <div class="val" id="regimePrice">--</div>
+                    </div>
+                    <div class="regime-mm-cell">
+                        <div class="lbl"><span id="regimeMMShortLbl">MM20</span></div>
+                        <div class="val" id="regimeMMShort">--</div>
+                    </div>
+                    <div class="regime-mm-cell">
+                        <div class="lbl"><span id="regimeMMMidLbl">MM50</span></div>
+                        <div class="val" id="regimeMMMid">--</div>
+                    </div>
+                    <div class="regime-mm-cell">
+                        <div class="lbl"><span id="regimeMMLongLbl">MM200</span></div>
+                        <div class="val" id="regimeMMLong">--</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Graphique régime -->
+        <div class="card mb-4">
+            <div class="card-header"><i class="bi bi-graph-up me-2"></i>BRVM Composite — Prix + Moyennes mobiles + Régime</div>
+            <div class="card-body">
+                <div class="chart-container" style="height: 380px;">
+                    <canvas id="regimeChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Régime tous les indices -->
+        <div class="card mb-4">
+            <div class="card-header"><i class="bi bi-list-check me-2"></i>Décomposition par indice</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="regime-all-table mb-0">
+                        <thead>
+                            <tr>
+                                <th>Indice</th>
+                                <th>Régime</th>
+                                <th>Prix</th>
+                                <th id="mmAllShortLbl">MM20</th>
+                                <th id="mmAllMidLbl">MM50</th>
+                                <th id="mmAllLongLbl">MM200</th>
+                            </tr>
+                        </thead>
+                        <tbody id="regimeAllBody">
+                            <tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:14px;">Chargement…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Légende régimes -->
+        <div class="regime-legend">
+            <h4><i class="bi bi-info-circle me-1"></i>Règles de classification</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                <div>
+                    <strong style="color:#16a34a;">🟢 Régime BULL (Prix &gt; MM200)</strong>
+                    <div class="legend-row"><span class="legend-dot" style="background:#1e40af;"></span>Strong Bull : P &gt; MM20 &gt; MM50 &gt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#16a34a;"></span>Bull : P &gt; MM50 &gt; MM20 &gt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#eab308;"></span>Bull en pullback : MM20 &gt; P &gt; MM50 &gt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#eab308;"></span>Bull en pullback : MM50 &gt; P &gt; MM20 &gt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#f97316;"></span>Bull faible : MM20 &gt; MM50 &gt; P &gt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#f97316;"></span>Bull faible : MM50 &gt; MM20 &gt; P &gt; MM200</div>
+                </div>
+                <div>
+                    <strong style="color:#dc2626;">🔴 Régime BEAR (Prix &lt; MM200)</strong>
+                    <div class="legend-row"><span class="legend-dot" style="background:#1e40af;"></span>Strong Bear : P &lt; MM20 &lt; MM50 &lt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#dc2626;"></span>Bear : P &lt; MM50 &lt; MM20 &lt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#eab308;"></span>Bear en rebond : MM20 &lt; P &lt; MM50 &lt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#eab308;"></span>Bear en rebond : MM50 &lt; P &lt; MM20 &lt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#f97316;"></span>Bear faible : MM20 &lt; MM50 &lt; P &lt; MM200</div>
+                    <div class="legend-row"><span class="legend-dot" style="background:#f97316;"></span>Bear faible : MM50 &lt; MM20 &lt; P &lt; MM200</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</div><!-- /tab-health -->
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ===== Vue d'ensemble indices : bar chart + base 100 avec filtre période + multi-sélection =====
+(function() {
+    const payload = {{ indices_series_json|safe }};
+    const series = (payload && payload.indices) ? payload.indices : [];
+    if (!series.length) return;
+
+    // Palette stable (cycle)
+    const palette = [
+        '#4f8cff', '#22c55e', '#f59e0b', '#ef4444', '#a855f7',
+        '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#14b8a6',
+        '#8b5cf6', '#eab308', '#0ea5e9', '#dc2626', '#10b981'
+    ];
+    const colorOf = {};
+    series.forEach((s, i) => { colorOf[s.ticker] = palette[i % palette.length]; });
+
+    // Sélection courante des indices pour le graphique base 100 (par défaut : tous)
+    const DEFAULT_TICKERS = new Set(['BRVMC', 'BRVM30', 'BRVMPR']);
+    const selected = new Set(series.filter(s => DEFAULT_TICKERS.has(s.ticker)).map(s => s.ticker));
+    if (!selected.size) series.forEach(s => selected.add(s.ticker)); // repli si aucun des défauts n'existe
+    let currentPeriod = '1a';
+
+    // Trouve l'index de la date de référence pour une période donnée
+    function refIndex(dates, period) {
+        const n = dates.length;
+        if (n === 0) return -1;
+        const rolling = { '1j': 1, '1s': 5, '1m': 22, '3m': 66, '6m': 132, '1a': 252, '3a': 756, '5a': 1260 };
+        if (period === 'origine') return 0;
+        if (rolling[period] !== undefined) {
+            const idx = n - 1 - rolling[period];
+            return idx >= 0 ? idx : -1;
+        }
+        const lastDate = new Date(dates[n - 1]);
+        let start;
+        if (period === 'ytd') {
+            start = new Date(lastDate.getFullYear(), 0, 1);
+        } else if (period === 'wtd') {
+            const dow = (lastDate.getDay() + 6) % 7;
+            start = new Date(lastDate); start.setDate(lastDate.getDate() - dow);
+        } else if (period === 'mtd') {
+            start = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1);
+        } else if (period === 'qtd') {
+            const qm = Math.floor(lastDate.getMonth() / 3) * 3;
+            start = new Date(lastDate.getFullYear(), qm, 1);
+        } else if (period === 'std') {
+            start = new Date(lastDate.getFullYear(), lastDate.getMonth() < 6 ? 0 : 6, 1);
+        } else {
+            return -1;
+        }
+        let idx = -1;
+        for (let i = 0; i < n; i++) {
+            if (new Date(dates[i]) < start) idx = i; else break;
+        }
+        return idx;
+    }
+
+    let barChart = null;
+    let base100Chart = null;
+
+    function buildBar(period) {
+        const rows = [];
+        for (const s of series) {
+            const n = s.closes.length;
+            if (n < 2) continue;
+            const refIdx = refIndex(s.dates, period);
+            if (refIdx < 0) continue;
+            const ref = s.closes[refIdx];
+            const last = s.closes[n - 1];
+            if (!ref || ref === 0) continue;
+            rows.push({ ticker: s.ticker, v: (last - ref) / ref * 100 });
+        }
+        rows.sort((a, b) => b.v - a.v);
+        const labels = rows.map(r => r.ticker);
+        const values = rows.map(r => +r.v.toFixed(2));
+        const colors = rows.map(r => r.v >= 0 ? 'rgba(34,197,94,0.75)' : 'rgba(239,68,68,0.75)');
+
+        if (barChart) barChart.destroy();
+        const ctx = document.getElementById('chartIndicesBar');
+        if (!ctx) return;
+        barChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels, datasets: [{ label: 'Variation %', data: values, backgroundColor: colors, borderWidth: 0 }] },
+            options: {
+                ...CHART_DEFAULTS,
+                indexAxis: 'x',
+                plugins: {
+                    ...CHART_DEFAULTS.plugins,
+                    legend: { display: false },
+                    tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: (c) => formatPct(c.parsed.y) } }
+                },
+                scales: {
+                    ...CHART_DEFAULTS.scales,
+                    y: { ...CHART_DEFAULTS.scales.y, ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: (v) => v + '%' } }
+                }
+            }
+        });
+    }
+
+    function buildBase100(period) {
+        const datasets = [];
+        let bestDates = [];
+        for (const s of series) {
+            if (!selected.has(s.ticker)) continue;
+            const n = s.closes.length;
+            const refIdx = refIndex(s.dates, period);
+            if (refIdx < 0 || n - refIdx < 2) continue;
+            const base = s.closes[refIdx];
+            if (!base) continue;
+            const dates = s.dates.slice(refIdx);
+            const norm = s.closes.slice(refIdx).map(c => (c / base) * 100);
+            if (dates.length > bestDates.length) bestDates = dates;
+            const color = colorOf[s.ticker];
+            datasets.push({
+                _dates: dates, _norm: norm,
+                label: s.ticker,
+                borderColor: color,
+                backgroundColor: color + '20',
+                borderWidth: 1.6,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                tension: 0.2,
+                fill: false,
+            });
+        }
+
+        const formattedLabels = bestDates.map(d => {
+            const dt = new Date(d);
+            return ('0' + dt.getDate()).slice(-2) + '/' + ('0' + (dt.getMonth() + 1)).slice(-2) + '/' + String(dt.getFullYear()).slice(-2);
+        });
+        for (const ds of datasets) {
+            const m = new Map();
+            for (let i = 0; i < ds._dates.length; i++) m.set(ds._dates[i], ds._norm[i]);
+            let last = null;
+            ds.data = bestDates.map(d => {
+                if (m.has(d)) { last = m.get(d); return last; }
+                return last;
+            });
+            delete ds._dates; delete ds._norm;
+        }
+
+        if (base100Chart) base100Chart.destroy();
+        const ctx = document.getElementById('chartIndicesBase100');
+        if (!ctx) return;
+        base100Chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: formattedLabels, datasets },
+            options: {
+                ...CHART_DEFAULTS,
+                plugins: {
+                    ...CHART_DEFAULTS.plugins,
+                    legend: { display: true, position: 'bottom', labels: { color: CHART_COLORS.text, font: { size: 10 }, boxWidth: 10 } },
+                    tooltip: {
+                        ...CHART_DEFAULTS.plugins.tooltip,
+                        callbacks: { label: (c) => c.dataset.label + ' : ' + formatNumber(c.parsed.y, 2) }
+                    }
+                },
+                scales: {
+                    ...CHART_DEFAULTS.scales,
+                    x: { ...CHART_DEFAULTS.scales.x, ticks: { ...CHART_DEFAULTS.scales.x.ticks, maxTicksLimit: 8, autoSkip: true } },
+                    y: { ...CHART_DEFAULTS.scales.y, ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: (v) => formatNumber(v, 0) } }
+                },
+                interaction: { mode: 'index', intersect: false }
+            }
+        });
+    }
+
+    function updateCount() {
+        const el = document.getElementById('base100Count');
+        if (el) el.textContent = String(selected.size);
+    }
+
+    function buildMenu() {
+        const menu = document.getElementById('base100Menu');
+        if (!menu) return;
+        menu.innerHTML = '';
+        for (const s of series) {
+            const id = 'b100_' + s.ticker.replace(/[^A-Za-z0-9]/g, '_');
+            const wrap = document.createElement('div');
+            wrap.className = 'form-check';
+            wrap.innerHTML = `
+                <input class="form-check-input" type="checkbox" id="${id}" data-ticker="${s.ticker}" ${selected.has(s.ticker) ? 'checked' : ''}>
+                <label class="form-check-label d-flex align-items-center gap-2" for="${id}">
+                    <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${colorOf[s.ticker]};"></span>
+                    <span class="fw-semibold">${s.ticker}</span>
+                </label>
+            `;
+            menu.appendChild(wrap);
+        }
+        menu.querySelectorAll('input[type=checkbox]').forEach(cb => {
+            cb.addEventListener('change', function() {
+                const t = this.dataset.ticker;
+                if (this.checked) selected.add(t); else selected.delete(t);
+                updateCount();
+                buildBase100(currentPeriod);
+            });
+        });
+        updateCount();
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        buildMenu();
+        buildBar(currentPeriod);
+        buildBase100(currentPeriod);
+
+        document.querySelectorAll('#indicesTimeFilter .time-filter-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('#indicesTimeFilter .time-filter-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentPeriod = this.dataset.period;
+                buildBar(currentPeriod);
+                buildBase100(currentPeriod);
+            });
+        });
+
+        const selAll = document.getElementById('base100SelectAll');
+        if (selAll) selAll.addEventListener('click', function() {
+            series.forEach(s => selected.add(s.ticker));
+            document.querySelectorAll('#base100Menu input[type=checkbox]').forEach(cb => { cb.checked = true; });
+            updateCount();
+            buildBase100(currentPeriod);
+        });
+        const selNone = document.getElementById('base100SelectNone');
+        if (selNone) selNone.addEventListener('click', function() {
+            selected.clear();
+            document.querySelectorAll('#base100Menu input[type=checkbox]').forEach(cb => { cb.checked = false; });
+            updateCount();
+            buildBase100(currentPeriod);
+        });
+    });
+})();
+
+// ============================================================
+// Santé du marché : onglets + Fear&Greed + Régime MM
+// ============================================================
+let healthLoaded = false;
+let regimeChart = null;
+
+function switchAITab(tabId) {
+    document.querySelectorAll('.ai-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+    document.querySelectorAll('.ai-tab-content').forEach(c => c.classList.toggle('active', c.id === tabId));
+    if (tabId === 'tab-health' && !healthLoaded) {
+        healthLoaded = true;
+        loadFearGreed();
+        loadRegime();
+        loadRegimeAll();
+    }
+}
+
+// ---- Sliders: live update display ----
+['fgW1','fgW2','fgW3','fgW4'].forEach((id, i) => {
+    document.addEventListener('DOMContentLoaded', () => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const lbl = document.getElementById('w' + (i+1) + 'Val');
+        el.addEventListener('input', () => { lbl.textContent = parseFloat(el.value).toFixed(1); });
+    });
+});
+
+// ---- Fear & Greed ----
+function getFGParams() {
+    return {
+        w1: document.getElementById('fgW1').value,
+        w2: document.getElementById('fgW2').value,
+        w3: document.getElementById('fgW3').value,
+        w4: document.getElementById('fgW4').value,
+        breadth_window: document.getElementById('fgBreadthWin').value,
+        vol_short: document.getElementById('fgVolShort').value,
+        vol_long: document.getElementById('fgVolLong').value,
+        mom_window: document.getElementById('fgMomWin').value,
+        disp_lookback: document.getElementById('fgDispLook').value,
+    };
+}
+
+async function loadFearGreed() {
+    const btn = document.getElementById('fgApplyBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Calcul...';
+    try {
+        const p = getFGParams();
+        const qs = new URLSearchParams(p).toString();
+        const r = await fetch(`{% url 'dashboard:api_market_fear_greed' %}?${qs}`);
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || `HTTP ${r.status}`);
+        }
+        const data = await r.json();
+        renderFearGreed(data);
+    } catch (err) {
+        alert('Erreur F&G : ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Recalculer F&G';
+    }
+}
+
+function renderFearGreed(data) {
+    const score = data.score;
+    document.getElementById('fgScoreNum').textContent = score != null ? Math.round(score) : '--';
+    document.getElementById('fgScoreNum').style.color = data.color;
+    document.getElementById('fgScoreLabel').textContent = data.label;
+    document.getElementById('fgScoreLabel').style.color = data.color;
+    document.getElementById('fgDate').textContent = 'Arrêté au ' + data.last_date;
+
+    drawFGGauge(score, data.color);
+
+    const c = data.components || {};
+    const updateComp = (key, valId, barId, detId, weightId, makeDetail) => {
+        const cmp = c[key] || {};
+        const v = cmp.value;
+        document.getElementById(valId).textContent = v != null ? Math.round(v) : '--';
+        document.getElementById(valId).style.color = v != null ? colorForScore(v) : 'var(--text-secondary)';
+        const bar = document.getElementById(barId);
+        bar.style.width = (v != null ? Math.max(0, Math.min(100, v)) : 0) + '%';
+        bar.style.background = v != null ? colorForScore(v) : 'var(--border-color)';
+        document.getElementById(weightId).textContent = 'w=' + parseFloat(cmp.weight || 0).toFixed(1);
+        document.getElementById(detId).textContent = makeDetail(cmp.details || {});
+    };
+
+    updateComp('breadth', 'fgValBreadth', 'fgBarBreadth', 'fgDetBreadth', 'fgWeightBreadth',
+        d => `${d.nb_up || 0}/${d.nb_total || 0} titres haussiers sur ${d.window || '?'}j`);
+    updateComp('vol', 'fgValVol', 'fgBarVol', 'fgDetVol', 'fgWeightVol',
+        d => d.vol_short != null
+            ? `Vol ${d.short_n}j: ${d.vol_short}% · Vol ${d.long_n}j: ${d.vol_long}% · ratio ${d.ratio}`
+            : 'Historique insuffisant');
+    updateComp('mom', 'fgValMom', 'fgBarMom', 'fgDetMom', 'fgWeightMom',
+        d => d.current_return_pct != null
+            ? `Rendement ${d.window}j: ${d.current_return_pct >= 0 ? '+' : ''}${d.current_return_pct}%`
+            : 'Historique insuffisant');
+    updateComp('disp', 'fgValDisp', 'fgBarDisp', 'fgDetDisp', 'fgWeightDisp',
+        d => d.current != null
+            ? `Disp. actuelle: ${d.current} (lookback ${d.lookback}j, ${d.nb_days} obs.)`
+            : 'Historique insuffisant');
+}
+
+function colorForScore(s) {
+    if (s == null) return '#6b7280';
+    if (s >= 75) return '#15803d';
+    if (s >= 55) return '#22c55e';
+    if (s >= 45) return '#f59e0b';
+    if (s >= 25) return '#f97316';
+    return '#dc2626';
+}
+
+function drawFGGauge(score, color) {
+    const canvas = document.getElementById('fgGaugeCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const cx = W / 2, cy = H * 0.92, r = Math.min(W, H * 1.7) * 0.42;
+    const start = Math.PI, end = 2 * Math.PI;
+
+    // Bandes de couleur F&G (0-25 Fear Extrême → 75-100 Greed Extrême)
+    const zones = [
+        { from: 0,  to: 25,  color: '#dc2626' },
+        { from: 25, to: 45,  color: '#f97316' },
+        { from: 45, to: 55,  color: '#f59e0b' },
+        { from: 55, to: 75,  color: '#22c55e' },
+        { from: 75, to: 100, color: '#15803d' },
+    ];
+    ctx.lineWidth = 22;
+    zones.forEach(z => {
+        const a1 = start + (z.from / 100) * (end - start);
+        const a2 = start + (z.to / 100) * (end - start);
+        ctx.beginPath();
+        ctx.strokeStyle = z.color;
+        ctx.arc(cx, cy, r, a1, a2);
+        ctx.stroke();
+    });
+
+    // Aiguille
+    if (score != null) {
+        const angle = start + (score / 100) * (end - start);
+        ctx.beginPath();
+        ctx.strokeStyle = color || '#fff';
+        ctx.lineWidth = 3;
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(angle) * (r - 6), cy + Math.sin(angle) * (r - 6));
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.fillStyle = color || '#fff';
+        ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Labels 0 / 50 / 100
+    ctx.fillStyle = '#8b8fa3';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('0', cx - r - 8, cy + 4);
+    ctx.fillText('50', cx, cy - r - 8);
+    ctx.fillText('100', cx + r + 8, cy + 4);
+}
+
+// ---- Régime MM ----
+function getRegimeParams() {
+    return {
+        mm_short: document.getElementById('mmShort').value,
+        mm_mid: document.getElementById('mmMid').value,
+        mm_long: document.getElementById('mmLong').value,
+        ticker: document.getElementById('mmTicker').value,
+        days: 252,
+    };
+}
+
+async function loadRegime() {
+    try {
+        const p = getRegimeParams();
+        const qs = new URLSearchParams(p).toString();
+        const r = await fetch(`{% url 'dashboard:api_market_regime' %}?${qs}`);
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || `HTTP ${r.status}`);
+        }
+        const data = await r.json();
+        renderRegime(data);
+        loadRegimeAll();
+    } catch (err) {
+        alert('Erreur Régime : ' + err.message);
+    }
+}
+
+function renderRegime(d) {
+    const cur = d.current;
+    document.getElementById('regimeTickerLabel').textContent = d.ticker;
+
+    const badge = document.getElementById('regimeBadge');
+    badge.style.background = cur.color;
+    document.getElementById('regimeBadgeLabel').textContent = cur.label;
+    document.getElementById('regimeBadgeTicker').textContent = d.ticker + ' · ' + cur.date;
+
+    // Icône selon code
+    const iconMap = {
+        STRONG_BULL: 'bi-rocket-takeoff',
+        BULL: 'bi-arrow-up-right',
+        BULL_PULLBACK: 'bi-arrow-down-right',
+        BULL_WEAK: 'bi-exclamation-triangle',
+        STRONG_BEAR: 'bi-arrow-down-right-square-fill',
+        BEAR: 'bi-arrow-down-right',
+        BEAR_REBOUND: 'bi-arrow-up-right',
+        BEAR_WEAK: 'bi-exclamation-triangle',
+        UNKNOWN: 'bi-hourglass',
+    };
+    const iconCls = iconMap[cur.code] || 'bi-flag';
+    badge.querySelector('.rb-icon').innerHTML = `<i class="bi ${iconCls}"></i>`;
+
+    document.getElementById('regimePrice').textContent = formatNumber(cur.price, 2);
+    document.getElementById('regimeMMShort').textContent = formatNumber(cur.mm_short, 2);
+    document.getElementById('regimeMMMid').textContent = formatNumber(cur.mm_mid, 2);
+    document.getElementById('regimeMMLong').textContent = formatNumber(cur.mm_long, 2);
+
+    document.getElementById('regimeMMShortLbl').textContent = 'MM' + d.params.mm_short;
+    document.getElementById('regimeMMMidLbl').textContent = 'MM' + d.params.mm_mid;
+    document.getElementById('regimeMMLongLbl').textContent = 'MM' + d.params.mm_long;
+
+    drawRegimeChart(d);
+}
+
+function drawRegimeChart(d) {
+    const ctx = document.getElementById('regimeChart');
+    if (regimeChart) regimeChart.destroy();
+
+    // Plugin de fond coloré selon régime quotidien
+    const bgPlugin = {
+        id: 'regimeBg',
+        beforeDraw(chart) {
+            const { ctx, chartArea: ca, scales: { x } } = chart;
+            if (!ca) return;
+            ctx.save();
+            const regimes = d.regimes || [];
+            const n = regimes.length;
+            for (let i = 0; i < n; i++) {
+                const x1 = x.getPixelForValue(i);
+                const x2 = i + 1 < n ? x.getPixelForValue(i + 1) : ca.right;
+                ctx.fillStyle = regimes[i].color + '22';
+                ctx.fillRect(x1, ca.top, x2 - x1, ca.bottom - ca.top);
+            }
+            ctx.restore();
+        }
+    };
+
+    const labels = d.dates.map(s => {
+        const dt = new Date(s);
+        return ('0' + dt.getDate()).slice(-2) + '/' + ('0' + (dt.getMonth() + 1)).slice(-2) + '/' + String(dt.getFullYear()).slice(-2);
+    });
+
+    regimeChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: d.ticker,
+                    data: d.close,
+                    borderColor: '#0f172a',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.15,
+                },
+                {
+                    label: 'MM' + d.params.mm_short,
+                    data: d.sma_short,
+                    borderColor: '#22c55e',
+                    backgroundColor: 'transparent',
+                    borderWidth: 1.2,
+                    pointRadius: 0,
+                    borderDash: [4, 3],
+                    tension: 0.15,
+                },
+                {
+                    label: 'MM' + d.params.mm_mid,
+                    data: d.sma_mid,
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'transparent',
+                    borderWidth: 1.2,
+                    pointRadius: 0,
+                    borderDash: [4, 3],
+                    tension: 0.15,
+                },
+                {
+                    label: 'MM' + d.params.mm_long,
+                    data: d.sma_long,
+                    borderColor: '#dc2626',
+                    backgroundColor: 'transparent',
+                    borderWidth: 1.4,
+                    pointRadius: 0,
+                    tension: 0.15,
+                },
+            ],
+        },
+        options: {
+            ...CHART_DEFAULTS,
+            plugins: {
+                ...CHART_DEFAULTS.plugins,
+                legend: { display: true, position: 'bottom', labels: { color: CHART_COLORS.text, font: { size: 10 }, boxWidth: 12 } },
+                tooltip: {
+                    ...CHART_DEFAULTS.plugins.tooltip,
+                    callbacks: {
+                        title: (items) => items[0]?.label || '',
+                        label: (c) => c.dataset.label + ' : ' + formatNumber(c.parsed.y, 2),
+                        afterTitle: (items) => {
+                            const i = items[0]?.dataIndex;
+                            if (i != null && d.regimes && d.regimes[i]) {
+                                return 'Régime : ' + d.regimes[i].label;
+                            }
+                            return '';
+                        }
+                    }
+                }
+            },
+            scales: {
+                ...CHART_DEFAULTS.scales,
+                x: { ...CHART_DEFAULTS.scales.x, ticks: { ...CHART_DEFAULTS.scales.x.ticks, maxTicksLimit: 10, autoSkip: true } },
+                y: { ...CHART_DEFAULTS.scales.y, ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: (v) => formatNumber(v, 0) } }
+            },
+            interaction: { mode: 'index', intersect: false }
+        },
+        plugins: [bgPlugin],
+    });
+}
+
+async function loadRegimeAll() {
+    const p = {
+        mm_short: document.getElementById('mmShort').value,
+        mm_mid: document.getElementById('mmMid').value,
+        mm_long: document.getElementById('mmLong').value,
+    };
+    document.getElementById('mmAllShortLbl').textContent = 'MM' + p.mm_short;
+    document.getElementById('mmAllMidLbl').textContent = 'MM' + p.mm_mid;
+    document.getElementById('mmAllLongLbl').textContent = 'MM' + p.mm_long;
+
+    const tbody = document.getElementById('regimeAllBody');
+    try {
+        const qs = new URLSearchParams(p).toString();
+        const r = await fetch(`{% url 'dashboard:api_market_regime_all' %}?${qs}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        tbody.innerHTML = '';
+        (data.items || []).forEach(it => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${it.ticker}</strong><div class="text-muted small">${it.nom || ''}</div></td>
+                <td><span class="regime-pill" style="background:${it.color}">${it.label}</span></td>
+                <td>${it.price != null ? formatNumber(it.price, 2) : '-'}</td>
+                <td>${it.mm_short != null ? formatNumber(it.mm_short, 2) : '-'}</td>
+                <td>${it.mm_mid != null ? formatNumber(it.mm_mid, 2) : '-'}</td>
+                <td>${it.mm_long != null ? formatNumber(it.mm_long, 2) : '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+        if (!data.items || !data.items.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:14px;">Aucun indice</td></tr>';
+        }
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--danger);padding:14px;">Erreur : ${err.message}</td></tr>`;
+    }
+}
+</script>
+{% endblock %}

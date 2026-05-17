@@ -1,0 +1,65 @@
+name: Scraping BRVM quotidien
+
+on:
+  schedule:
+    # 20h00 Abidjan (UTC+0) du lundi au vendredi
+    # La BRVM est fermée le week-end, inutile de scraper
+    - cron: '0 20 * * 1-5'
+  workflow_dispatch: {}
+
+concurrency:
+  group: brvm-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-scraping.txt
+
+      - name: Run scraper (cours & indices)
+        run: python scraper_brvm.py full
+
+      - name: Run scraper (news)
+        run: python scraper_news_brvm.py
+        continue-on-error: true
+
+      - name: Commit & push data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "Aucune nouvelle donnée à commiter."
+          else
+            git commit -m "chore(data): maj quotidienne BRVM $(date -u +'%Y-%m-%d')"
+            git push
+          fi
+
+      - name: Upload scraper logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-logs
+          path: |
+            scraper.log
+            scraper_news.log
+            scraper_info.log
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}Performances - LOOK UP BRVM{% endblock %}
+{% block page_title %}
+<i class="bi bi-trophy me-2"></i>Performances comparatives
+{% endblock %}
+
+{% block top_actions %}
+<button class="btn btn-outline-secondary btn-sm" onclick="exportTableToCSV('perfTable', 'performances_brvm.csv')">
+    <i class="bi bi-download me-1"></i>Export CSV
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- Filtres -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-center">
+            <div class="col-md-4">
+                <input type="text" id="searchPerf" class="form-control" placeholder="Filtrer par ticker..." oninput="filterPerfTable()">
+            </div>
+            <div class="col-md-3">
+                <select id="filterPays" class="form-select" onchange="filterPerfTable()">
+                    <option value="">Tous les pays</option>
+                    <option value="ci">Côte d'Ivoire (.ci)</option>
+                    <option value="sn">Sénégal (.sn)</option>
+                    <option value="bj">Bénin (.bj)</option>
+                    <option value="bf">Burkina Faso (.bf)</option>
+                    <option value="ml">Mali (.ml)</option>
+                    <option value="ne">Niger (.ne)</option>
+                    <option value="tg">Togo (.tg)</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <span class="text-muted small" id="perfCount">{{ perf_data|length }} actions</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tableau de performances -->
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table sortable mb-0" id="perfTable">
+                <thead>
+                    <tr>
+                        <th data-sort>Ticker</th>
+                        <th data-sort class="text-end">Cours</th>
+                        <th data-sort class="text-end">1 Jour</th>
+                        <th data-sort class="text-end">1 Sem.</th>
+                        <th data-sort class="text-end">1 Mois</th>
+                        <th data-sort class="text-end">3 Mois</th>
+                        <th data-sort class="text-end">6 Mois</th>
+                        <th data-sort class="text-end">1 An</th>
+                        <th data-sort class="text-end">PER</th>
+                        <th data-sort class="text-end">Div.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in perf_data %}
+                    <tr data-ticker="{{ row.ticker }}" data-pays="{{ row.pays }}">
+                        <td>
+                            <a href="{% url 'dashboard:analyse_actions' %}?ticker={{ row.ticker }}" class="text-decoration-none text-primary fw-bold">
+                                {{ row.ticker }}
+                            </a>
+                        </td>
+                        <td class="text-end">{{ row.dernier_cours|format_number:0 }}</td>
+                        <td class="text-end">
+                            {% if row.var_1j is not None %}
+                            <span class="{{ row.var_1j|color_variation }}">{{ row.var_1j|format_pct }}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if row.var_1s is not None %}
+                            <span class="{{ row.var_1s|color_variation }}">{{ row.var_1s|format_pct }}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if row.var_1m is not None %}
+                            <span class="{{ row.var_1m|color_variation }}">{{ row.var_1m|format_pct }}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if row.var_3m is not None %}
+                            <span class="{{ row.var_3m|color_variation }}">{{ row.var_3m|format_pct }}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if row.var_6m is not None %}
+                            <span class="{{ row.var_6m|color_variation }}">{{ row.var_6m|format_pct }}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if row.var_1a is not None %}
+                            <span class="{{ row.var_1a|color_variation }}">{{ row.var_1a|format_pct }}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end">{{ row.per|format_number:2 }}</td>
+                        <td class="text-end">{{ row.dividende|format_number:2 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function filterPerfTable() {
+    const search = document.getElementById('searchPerf').value.toLowerCase();
+    const pays = document.getElementById('filterPays').value;
+    const rows = document.querySelectorAll('#perfTable tbody tr');
+    let visible = 0;
+
+    rows.forEach(row => {
+        const ticker = row.dataset.ticker.toLowerCase();
+        const rowPays = row.dataset.pays;
+        const matchSearch = !search || ticker.includes(search);
+        const matchPays = !pays || rowPays === pays;
+
+        if (matchSearch && matchPays) {
+            row.style.display = '';
+            visible++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+
+    document.getElementById('perfCount').textContent = visible + ' actions';
+}
+</script>
+{% endblock %}

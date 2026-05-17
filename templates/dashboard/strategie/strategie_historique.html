@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}LOOK UP BRVM - Historique des allocations{% endblock %}
+{% block page_title %}<i class="bi bi-clock-history me-2"></i>Historique des allocations HMM{% endblock %}
+
+{% block top_actions %}
+<a href="{% url 'dashboard:strategie_dashboard' %}" class="btn btn-sm btn-outline-light">
+    <i class="bi bi-arrow-left"></i> Retour
+</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+    <div class="card-header"><i class="bi bi-list-check me-1"></i> Allocations enregistrées ({{ allocations|length }})</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Stratégie</th>
+                        <th>Régime</th>
+                        <th>Top 3 facteurs</th>
+                        <th>Top 5 actions</th>
+                        <th class="text-end">Sharpe attendu</th>
+                        <th class="text-end">Rdt attendu</th>
+                        <th>Déclencheur</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in allocations %}
+                <tr>
+                    <td><strong>{{ row.obj.date|date:"d/m/Y" }}</strong><br><small class="text-muted">{{ row.obj.date_creation|date:"H:i" }}</small></td>
+                    <td><span class="badge bg-primary">{{ row.obj.get_strategie_display }}</span></td>
+                    <td>
+                        {% if row.obj.regime %}
+                            {% if row.obj.regime.regime_confirme == 0 %}
+                                <span class="badge bg-success">Favorable (0)</span>
+                            {% else %}
+                                <span class="badge bg-danger">Défavorable (1)</span>
+                            {% endif %}
+                        {% else %}—{% endif %}
+                    </td>
+                    <td><small>
+                        {% for f in row.top_facteurs %}{{ f.code }}({{ f.poids|mul:100|floatformat:1 }}%){% if not forloop.last %}, {% endif %}{% endfor %}
+                    </small></td>
+                    <td><small>
+                        {% for a in row.top_actions %}{{ a.ticker }}({{ a.poids|mul:100|floatformat:1 }}%){% if not forloop.last %}, {% endif %}{% endfor %}
+                    </small></td>
+                    <td class="text-end">{{ row.obj.sharpe_attendu|floatformat:3 }}</td>
+                    <td class="text-end">{{ row.obj.rendement_attendu|mul:100|floatformat:2 }}%</td>
+                    <td><small class="text-muted">{{ row.obj.declencheur }}</small></td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="8" class="text-center text-muted py-4">Aucune allocation enregistrée. Lancez le pipeline depuis le tableau de bord.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

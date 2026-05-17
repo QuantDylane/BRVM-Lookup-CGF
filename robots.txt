@@ -1,0 +1,78 @@
+```
+#robots.txt pour www.sikafinance.com
+
+User-Agent: *
+Disallow: /listes/displaylist
+Disallow: /portif/displayp
+Disallow: /docs/*
+
+https://www.sikafinance.com/sitemap
+https://www.sikafinance.com/sitemapnews
+
+# Brandwatch
+User-agent: magpie-crawler
+Disallow: /
+
+# ubermetrics-technologies.com
+User-agent: um-IC
+Disallow: /
+
+# Majestic
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: BLEXBot
+User-agent: AwarioRssBot
+User-agent: AwarioSmartBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+User-agent: SiteAuditBot
+Disallow: /
+User-agent: SemrushBot-BA
+Disallow: /
+User-agent: SemrushBot-SI
+Disallow: /
+User-agent: SemrushBot-SWA
+Disallow: /  
+User-agent: SemrushBot-CT
+Disallow: /
+User-agent: SemrushBot-BM
+Disallow: /
+User-agent: SplitSignalBot
+Disallow: /
+User-agent: SemrushBot-COUB
+Disallow: /
+
+User-agent: Diffbot
+Disallow: /
+
+# Linkfluence
+User-agent: YaK
+Disallow: /
+
+#Talkwalkers
+User-Agent: trendictionbot
+Disallow: /
+
+User-agent: GnowitNewsbot
+Disallow: /
+
+# Ads
+
+User-agent: admantx
+Disallow: /
+
+User-agent: proximic
+Disallow: /
+
+User-agent: CriteoBot
+Disallow: /
+
+User-agent: DataForSeoBot
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+```

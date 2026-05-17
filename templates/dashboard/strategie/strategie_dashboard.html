@@ -1,0 +1,1942 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}LOOK UP BRVM - Stratégie HMM{% endblock %}
+{% block page_title %}<i class="bi bi-diagram-3 me-2"></i>Stratégie Sharpe HMM{% endblock %}
+
+{% block top_actions %}
+<div class="d-flex align-items-center gap-2">
+    <label for="selectStrategie" class="form-label mb-0 small text-muted">Stratégie :</label>
+    <select id="selectStrategie" class="form-select form-select-sm" style="max-width: 220px;">
+        {% for s in strategies_dispo %}
+            <option value="{{ s.code }}" {% if derniere_alloc and derniere_alloc.strategie == s.code %}selected{% endif %}>
+                {{ s.libelle }}
+            </option>
+        {% endfor %}
+    </select>
+    <button id="btnReallouer" class="btn btn-sm btn-primary">
+        <i class="bi bi-arrow-clockwise"></i> Lancer le pipeline
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* Onglets — style discret aligné sur la palette Bootstrap dark */
+  .hmm-tabs .nav-link {
+    color: var(--bs-secondary-color);
+    border: 1px solid transparent;
+    border-bottom: 0;
+    padding: .55rem 1rem;
+    font-size: .92rem;
+  }
+  .hmm-tabs .nav-link:hover { color: var(--bs-body-color); background: var(--bs-tertiary-bg); }
+  .hmm-tabs .nav-link.active {
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    border-color: var(--bs-border-color) var(--bs-border-color) var(--bs-body-bg);
+    font-weight: 600;
+  }
+  .hmm-tabs .nav-link.featured { color: #0dcaf0; }
+  .hmm-tabs .nav-link.featured.active { color: #0dcaf0; }
+
+  /* Heatmap cells */
+  .hm-cell { display:inline-block; width:34px; text-align:center; font-weight:600; border-radius:3px; padding:2px 0; font-size:.78rem;}
+  .hm-L { background: rgba(25,135,84,.85); color:#fff; }
+  .hm-S { background: rgba(220,53,69,.85); color:#fff; }
+  .hm-N { background: rgba(108,117,125,.25); color: var(--bs-secondary-color); }
+
+  /* Décomposition cellules */
+  .dec-cell-pos { color:#75b798; font-weight:500; }
+  .dec-cell-neg { color:#ea868f; font-weight:500; }
+  .dec-cell-empty { color: var(--bs-secondary-color); }
+
+  /* Bar visuelle Top long/short */
+  .bar-track { background: rgba(255,255,255,.06); height: 8px; border-radius: 4px; overflow:hidden; }
+  .bar-long  { background: linear-gradient(90deg, #198754, #20c997); height:100%; }
+  .bar-short { background: linear-gradient(90deg, #dc3545, #fd7e14); height:100%; }
+
+  .factor-pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:.72rem; background: rgba(13,110,253,.18); color:#9ec5fe; margin-right:4px;}
+  .header-sticky-card { position: sticky; top: 0; z-index: 5; }
+
+  /* Méthodologie — liste verticale des étapes */
+  #methodoSteps .list-group-item {
+    background: transparent;
+    color: var(--bs-body-color);
+    border: 0;
+    border-bottom: 1px solid var(--bs-border-color);
+    padding: .55rem .9rem;
+    font-size: .9rem;
+    cursor: pointer;
+  }
+  #methodoSteps .list-group-item:last-child { border-bottom: 0; }
+  #methodoSteps .list-group-item:hover { background: var(--bs-body-bg); }
+  #methodoSteps .list-group-item.active {
+    background: rgba(13,110,253,.18);
+    color: #9ec5fe;
+    font-weight: 600;
+    border-color: var(--bs-border-color);
+  }
+
+  /* ── Formules mathématiques stylisées ─────────────────── */
+  .formula-card {
+    background: rgba(13,202,240,.05);
+    border: 1px solid rgba(13,202,240,.2);
+    border-left: 3px solid #0dcaf0;
+    border-radius: 0 6px 6px 0;
+    padding: 10px 16px;
+    margin: 8px 0;
+  }
+  .formula-card .fc-label {
+    font-size: .68rem;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: #0dcaf0;
+    font-weight: 700;
+    margin-bottom: 5px;
+  }
+  .formula-card .fc-eq {
+    font-family: 'Courier New', monospace;
+    font-size: .96rem;
+    color: var(--bs-body-color);
+    line-height: 1.7;
+  }
+  .formula-card .fc-cond {
+    font-size: .77rem;
+    color: var(--bs-secondary-color);
+    margin-top: 4px;
+    font-style: italic;
+  }
+  .fvar { color: #6ea8fe; font-style: italic; }
+  .fop  { color: var(--bs-secondary-color); }
+  .fnum { color: #75b798; }
+  .fsub { font-size: .75em; vertical-align: sub; }
+  .fsup { font-size: .75em; vertical-align: super; }
+
+  /* Illustration réelle — tableau facteurs */
+  .illus-val { font-family: 'Courier New', monospace; font-weight: 600; font-size: .88rem; }
+  .illus-inv { color: #ea868f; }
+  .illus-dir { color: #75b798; }
+  .famille-pill { font-size: .68rem; padding: 1px 6px; border-radius: 8px; }
+  .fp-valeur     { background: rgba(13,110,253,.2); color: #9ec5fe; }
+  .fp-qualite    { background: rgba(25,135,84,.2);  color: #75b798; }
+  .fp-risque     { background: rgba(220,53,69,.2);  color: #ea868f; }
+  .fp-taille     { background: rgba(108,117,125,.2); color: #adb5bd; }
+  .fp-momentum   { background: rgba(255,193,7,.2);  color: #ffda6a; }
+  .fp-liquidite  { background: rgba(13,202,240,.2); color: #6edff6; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% if not derniere_alloc %}
+<div class="alert alert-warning d-flex align-items-center gap-3">
+    <i class="bi bi-exclamation-triangle fs-3"></i>
+    <div class="flex-grow-1">
+        <strong>Aucune allocation calculée.</strong>
+        Cliquez sur "Lancer le pipeline" ou exécutez en ligne de commande :
+        <code class="ms-2">python manage.py generer_allocation_strategie</code>
+    </div>
+</div>
+{% else %}
+
+<!-- ============================================================ -->
+<!-- HEADER STICKY : régime HMM + KPIs (toujours visible)          -->
+<!-- ============================================================ -->
+<div class="row g-3 mb-3">
+    <div class="col-lg-8">
+        <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <h6 class="card-title mb-1">État du Marché — HMM 2 Régimes</h6>
+                        <small class="text-muted">Détecté au {{ dernier_regime.date|date:"d/m/Y" }} · Allocation au {{ derniere_alloc.date|date:"d/m/Y" }}</small>
+                    </div>
+                    {% if dernier_regime.regime_confirme == 0 %}
+                        <span class="badge bg-success fs-6 px-3 py-2">
+                            <i class="bi bi-arrow-up-circle-fill me-1"></i>RÉGIME 0 — Favorable
+                        </span>
+                    {% else %}
+                        <span class="badge bg-danger fs-6 px-3 py-2">
+                            <i class="bi bi-arrow-down-circle-fill me-1"></i>RÉGIME 1 — Défavorable
+                        </span>
+                    {% endif %}
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="text-muted small mb-1">P(Régime 0 | obs)</div>
+                        <div class="progress" style="height: 18px;">
+                            <div class="progress-bar bg-success" style="width: {{ dernier_regime.proba_regime_0|mul:100|floatformat:1 }}%">
+                                {{ dernier_regime.proba_regime_0|floatformat:3 }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="text-muted small mb-1">P(Régime 1 | obs)</div>
+                        <div class="progress" style="height: 18px;">
+                            <div class="progress-bar bg-danger" style="width: {{ dernier_regime.proba_regime_1|mul:100|floatformat:1 }}%">
+                                {{ dernier_regime.proba_regime_1|floatformat:3 }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+            <div class="card-body py-3">
+                <h6 class="text-muted small text-uppercase mb-2">KPIs attendus (annualisés)</h6>
+                <div class="d-flex justify-content-between"><span>Rendement</span>
+                    <strong class="{% if derniere_alloc.rendement_attendu > 0 %}text-success{% else %}text-danger{% endif %}">
+                        {{ derniere_alloc.rendement_attendu|mul:100|floatformat:2 }}%
+                    </strong></div>
+                <div class="d-flex justify-content-between"><span>Volatilité</span>
+                    <strong>{{ derniere_alloc.volatilite_attendue|mul:100|floatformat:2 }}%</strong></div>
+                <div class="d-flex justify-content-between"><span>Sharpe</span>
+                    <strong class="text-info">{{ derniere_alloc.sharpe_attendu|floatformat:3 }}</strong></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- NAV ONGLETS                                                  -->
+<!-- ============================================================ -->
+<ul class="nav nav-tabs hmm-tabs mb-3" id="hmmTabs" role="tablist">
+    <li class="nav-item"><a class="nav-link featured active" data-bs-toggle="tab" href="#tab-methodo" role="tab"><i class="bi bi-mortarboard-fill me-1"></i>Méthodologie</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-diagnostics" role="tab"><i class="bi bi-clipboard-data me-1"></i>Robustesse statistique</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-buckets" role="tab"><i class="bi bi-collection me-1"></i>Composition Buckets</a></li>
+    <li class="nav-item"><a class="nav-link featured" data-bs-toggle="tab" href="#tab-comparaison" role="tab"><i class="bi bi-bar-chart-steps me-1"></i>Comparaison Stratégies</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-heatmap" role="tab"><i class="bi bi-thermometer-half me-1"></i>Heatmap</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-regimes" role="tab"><i class="bi bi-graph-up me-1"></i>Régime</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-poids" role="tab"><i class="bi bi-grid-3x3 me-1"></i>Poids Globaux</a></li>
+    <li class="nav-item"><a class="nav-link featured" data-bs-toggle="tab" href="#tab-longonly" role="tab"><i class="bi bi-bag-check-fill me-1"></i>Portefeuille Long-Only</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-historique" role="tab"><i class="bi bi-clock-history me-1"></i>Historique</a></li>
+</ul>
+
+<div class="tab-content">
+
+<!-- ============================================================ -->
+<!-- ONGLET MÉTHODOLOGIE — Pipeline pas à pas                      -->
+<!-- ============================================================ -->
+<div class="tab-pane fade show active" id="tab-methodo" role="tabpanel">
+    <div class="alert alert-info py-2 small mb-3">
+        <i class="bi bi-info-circle me-1"></i>
+        Description complète du pipeline <strong>Smart Beta multifactoriel + HMM</strong> appliqué à la BRVM —
+        de la collecte des données à l'allocation réelle du portefeuille global.
+        <span class="text-muted">Référence : <em>COULIBALY E. (2024-2025) — Optimisation des stratégies multifactorielles sur les portefeuilles actions dans l'environnement de la BRVM : approche Smart Beta</em>, ENSEA / CGF Gestion.</span>
+    </div>
+
+    <div class="row g-3">
+        <!-- Navigation verticale des étapes -->
+        <div class="col-lg-3">
+            <div class="card header-sticky-card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                <div class="card-header py-2"><strong><i class="bi bi-diagram-3 me-1"></i>Étapes du pipeline</strong></div>
+                <div class="list-group list-group-flush nav flex-column" id="methodoSteps" role="tablist" aria-orientation="vertical">
+                    <a class="list-group-item list-group-item-action active" data-bs-toggle="pill" href="#methodo-step-1" role="tab">
+                        <span class="badge bg-primary me-2">1</span>Données &amp; univers
+                    </a>
+                    <a class="list-group-item list-group-item-action" data-bs-toggle="pill" href="#methodo-step-2" role="tab">
+                        <span class="badge bg-primary me-2">2</span>Calcul des 13 facteurs
+                    </a>
+                    <a class="list-group-item list-group-item-action" data-bs-toggle="pill" href="#methodo-step-3" role="tab">
+                        <span class="badge bg-primary me-2">3</span>Portefeuilles long-short
+                    </a>
+                    <a class="list-group-item list-group-item-action" data-bs-toggle="pill" href="#methodo-step-4" role="tab">
+                        <span class="badge bg-primary me-2">4</span>Analyse descriptive
+                    </a>
+                    <a class="list-group-item list-group-item-action" data-bs-toggle="pill" href="#methodo-step-5" role="tab">
+                        <span class="badge bg-primary me-2">5</span>Entraînement HMM
+                    </a>
+                    <a class="list-group-item list-group-item-action" data-bs-toggle="pill" href="#methodo-step-6" role="tab">
+                        <span class="badge bg-primary me-2">6</span>Détection des régimes
+                    </a>
+                    <a class="list-group-item list-group-item-action" data-bs-toggle="pill" href="#methodo-step-7" role="tab">
+                        <span class="badge bg-primary me-2">7</span>Optimisation conditionnelle
+                    </a>
+                    <a class="list-group-item list-group-item-action" data-bs-toggle="pill" href="#methodo-step-8" role="tab">
+                        <span class="badge bg-primary me-2">8</span>Scoring &amp; sélection
+                    </a>
+                    <a class="list-group-item list-group-item-action" data-bs-toggle="pill" href="#methodo-step-9" role="tab">
+                        <span class="badge bg-success me-2">9</span>Allocation réelle
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenu des étapes -->
+        <div class="col-lg-9">
+            <div class="tab-content">
+
+                <!-- Étape 1 — Données & univers -->
+                <div class="tab-pane fade show active" id="methodo-step-1" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header"><strong>Étape 1 — Données &amp; univers d'investissement</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Objectif</h6>
+                            <p class="small">Constituer la base de données nécessaire au calcul des facteurs et à l'entraînement du modèle HMM, sur l'ensemble des actions cotées à la BRVM.</p>
+
+                            <h6 class="text-info mt-3">Sources de données</h6>
+                            <ul class="small mb-0">
+                                <li><strong>Historiques de cours quotidiens</strong> — <code>data/actions/&lt;TICKER&gt;_&lt;pays&gt;_historique.csv</code> (scraper <code>scraper_brvm.py</code>)</li>
+                                <li><strong>Fondamentaux annuels</strong> — table <code>FondamentauxAnnuels</code> alimentée par <code>importer_fondamentaux</code> depuis <code>data/strategie_hmm/Données Modele HMM FSHMM.xlsx</code></li>
+                                <li><strong>Dividendes</strong> — <code>data/dividendes/</code> (scraper <code>scraper_dividendes.py</code>)</li>
+                                <li><strong>Indices BRVM</strong> — <code>data/indices/</code> (pour calcul du bêta de marché)</li>
+                                <li><strong>Informations sociétés</strong> — table <code>Action</code> (ticker, pays, secteur)</li>
+                            </ul>
+
+                            <h6 class="text-info mt-3">Univers</h6>
+                            <p class="small mb-0">Actions de la BRVM dont les fondamentaux <em>critiques</em> sont renseignés (<code>CAPI</code>, <code>VARIANCE</code>, <code>RDT_JOURNALIER</code> non nuls) — voir <code>strategie_service.executer_pipeline_complet()</code>.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Étape 2 — 13 facteurs -->
+                <div class="tab-pane fade" id="methodo-step-2" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header"><strong>Étape 2 — Calcul des 13 facteurs stylisés</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Objectif</h6>
+                            <p class="small">Quantifier chaque action selon 13 dimensions de risque/style identifiées dans la littérature Smart Beta et adaptées au contexte BRVM (mémoire COULIBALY, 2024-2025).</p>
+
+                            <!-- ── Tableau récapitulatif ── -->
+                            <h6 class="text-info mt-3">Les 13 facteurs (6 familles)</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered small mb-0">
+                                    <thead class="text-muted"><tr><th>Famille</th><th>Code</th><th>Libellé</th><th>Formule exacte</th><th>Score ↑ si valeur</th></tr></thead>
+                                    <tbody>
+                                        <tr><td rowspan="4" class="align-middle"><span class="famille-pill fp-valeur">Valeur</span></td>
+                                            <td><code>BtM</code></td><td>Book-to-Market</td>
+                                            <td>Capitaux propres / Capitalisation boursière</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td><code>EP</code></td><td>Earnings/Price</td>
+                                            <td>(RN / nb actions) / Cours</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td><code>SP</code></td><td>Sales/Price</td>
+                                            <td>(CA / nb actions) / Cours</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td><code>DIV_YIELD</code></td><td>Dividend Yield</td>
+                                            <td>Dividende annuel / Cours</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td rowspan="3" class="align-middle"><span class="famille-pill fp-qualite">Qualité</span></td>
+                                            <td><code>ROE</code></td><td>Return on Equity</td>
+                                            <td>Résultat net / Capitaux propres</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td><code>ROA</code></td><td>Return on Assets</td>
+                                            <td>Résultat net / Total actif</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td><code>LEVIER</code></td><td>Levier financier</td>
+                                            <td>Total dettes / Capitaux propres</td><td class="text-danger">↓ faible <small>(inversé)</small></td></tr>
+                                        <tr><td rowspan="2" class="align-middle"><span class="famille-pill fp-risque">Risque</span></td>
+                                            <td><code>VARIANCE</code></td><td>Variance des rendements</td>
+                                            <td>Var(Rₜ) journalière — fenêtre 60 j</td><td class="text-danger">↓ faible <small>(inversé)</small></td></tr>
+                                        <tr><td><code>BETA</code></td><td>Bêta de marché</td>
+                                            <td>Cov(Rᵢ, Rₘ) / Var(Rₘ) — fenêtre 252 j</td><td class="text-danger">↓ faible <small>(inversé)</small></td></tr>
+                                        <tr><td class="align-middle"><span class="famille-pill fp-taille">Taille</span></td>
+                                            <td><code>CAPI</code></td><td>Capitalisation</td>
+                                            <td>Nombre d'actions × Cours</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td rowspan="2" class="align-middle"><span class="famille-pill fp-momentum">Momentum</span></td>
+                                            <td><code>RDT_JOURNALIER</code></td><td>Rendement journalier</td>
+                                            <td>(Pₜ − Pₜ₋₁) / Pₜ₋₁</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td><code>MOM_6M</code></td><td>Momentum 6 mois</td>
+                                            <td>(Pₜ − Pₜ₋₁₂₆) / Pₜ₋₁₂₆</td><td class="text-success">↑ élevée</td></tr>
+                                        <tr><td class="align-middle"><span class="famille-pill fp-liquidite">Liquidité</span></td>
+                                            <td><code>VOLUME</code></td><td>Volume échangé</td>
+                                            <td>Moyenne 20 j du volume en FCFA</td><td class="text-success">↑ élevée</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="small text-muted mt-1 mb-0">
+                                <i class="bi bi-code-slash me-1"></i>Implémentation : <code>dashboard/strategie_hmm/core/facteurs.py</code> ·
+                                <code>FACTEURS_A_INVERSER = {VARIANCE, BETA, LEVIER}</code> — z-score multiplié par −1.
+                            </p>
+
+                            <!-- ── Formules détaillées ── -->
+                            <h6 class="text-info mt-4">Formules détaillées par famille</h6>
+
+                            <p class="small text-muted mb-2">Toutes les données fondamentales proviennent du <strong>dernier exercice disponible</strong> ≤ date de calcul.</p>
+
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <div class="formula-card">
+                                        <div class="fc-label">Valeur — BtM &nbsp;·&nbsp; EP &nbsp;·&nbsp; SP &nbsp;·&nbsp; DIV_YIELD</div>
+                                        <div class="fc-eq">
+                                            <fvar>BtM</fvar><sub class="fsub">i</sub> = <fnum>CP<sub class="fsub">i</sub></fnum> / <fnum>Capi<sub class="fsub">i</sub></fnum><br>
+                                            <fvar>EP</fvar><sub class="fsub">i</sub> = <fnum>(RN<sub class="fsub">i</sub> / N<sub class="fsub">i</sub>)</fnum> / <fnum>P<sub class="fsub">i</sub></fnum><br>
+                                            <fvar>SP</fvar><sub class="fsub">i</sub> = <fnum>(CA<sub class="fsub">i</sub> / N<sub class="fsub">i</sub>)</fnum> / <fnum>P<sub class="fsub">i</sub></fnum><br>
+                                            <fvar>DY</fvar><sub class="fsub">i</sub> = <fnum>Div<sub class="fsub">i</sub></fnum> / <fnum>P<sub class="fsub">i</sub></fnum>
+                                        </div>
+                                        <div class="fc-cond">CP = capitaux propres · RN = résultat net · N = nb actions · CA = chiffre d'affaires · P = cours · Div = dividende annuel</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="formula-card">
+                                        <div class="fc-label">Qualité — ROE &nbsp;·&nbsp; ROA &nbsp;·&nbsp; LEVIER</div>
+                                        <div class="fc-eq">
+                                            <fvar>ROE</fvar><sub class="fsub">i</sub> = <fnum>RN<sub class="fsub">i</sub></fnum> / <fnum>CP<sub class="fsub">i</sub></fnum><br>
+                                            <fvar>ROA</fvar><sub class="fsub">i</sub> = <fnum>RN<sub class="fsub">i</sub></fnum> / <fnum>Actif<sub class="fsub">i</sub></fnum><br>
+                                            <fvar>Levier</fvar><sub class="fsub">i</sub> = <fnum>Dette<sub class="fsub">i</sub></fnum> / <fnum>CP<sub class="fsub">i</sub></fnum>
+                                        </div>
+                                        <div class="fc-cond">Actif = total actif · Dette = total dettes · LEVIER est inversé (score ↑ si valeur ↓)</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="formula-card">
+                                        <div class="fc-label">Risque — VARIANCE &nbsp;·&nbsp; BETA</div>
+                                        <div class="fc-eq">
+                                            <fvar>Var</fvar><sub class="fsub">i</sub> = <fnum>Var({ Rₜ })</fnum><sub class="fsub">t∈[−60j, 0]</sub><br>
+                                            &nbsp;&nbsp; où Rₜ = (Pₜ − Pₜ₋₁) / Pₜ₋₁<br><br>
+                                            <fvar>β</fvar><sub class="fsub">i</sub> = <fnum>Cov(Rᵢ, Rₘ)</fnum> / <fnum>Var(Rₘ)</fnum><sub class="fsub">t∈[−252j, 0]</sub>
+                                        </div>
+                                        <div class="fc-cond">Rₘ = rendements quotidiens BRVMC · les deux facteurs sont inversés (faible risque → LONG)</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="formula-card">
+                                        <div class="fc-label">Momentum — RDT_JOURNALIER &nbsp;·&nbsp; MOM_6M</div>
+                                        <div class="fc-eq">
+                                            <fvar>Rdt</fvar><sub class="fsub">i,t</sub> = (P<sub class="fsub">t</sub> − P<sub class="fsub">t−1</sub>) / P<sub class="fsub">t−1</sub><br>
+                                            <fvar>Mom</fvar><sub class="fsub">6M,i</sub> = (P<sub class="fsub">t</sub> − P<sub class="fsub">t−126</sub>) / P<sub class="fsub">t−126</sub>
+                                        </div>
+                                        <div class="fc-cond">126 jours ouvrés ≈ 6 mois calendaires</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="formula-card">
+                                        <div class="fc-label">Taille &amp; Liquidité — CAPI &nbsp;·&nbsp; VOLUME</div>
+                                        <div class="fc-eq">
+                                            <fvar>Capi</fvar><sub class="fsub">i</sub> = N<sub class="fsub">i</sub> × P<sub class="fsub">i</sub><br>
+                                            <fvar>Vol</fvar><sub class="fsub">i</sub> = <fnum>Moy<sub class="fsub">20j</sub> (Volume FCFA)</fnum>
+                                        </div>
+                                        <div class="fc-cond">N = nombre d'actions émises · volume en FCFA = cours × volume titres</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- ── Illustration réelle ── -->
+                            {% if illustration_action %}
+                            <h6 class="text-warning mt-4"><i class="bi bi-lightning-fill me-1"></i>Illustration réelle — {{ illustration_action.ticker }} ({{ illustration_action.nom }}) au {{ illustration_action.date|date:"d/m/Y" }}</h6>
+                            <p class="small text-muted">Valeurs effectives des 13 facteurs calculés par le pipeline au {{ illustration_action.date|date:"d/m/Y" }} — action <strong>{{ illustration_action.ticker }}</strong> (1ᵉʳ rang du portefeuille long-only courant).</p>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover small mb-0">
+                                    <thead class="text-muted">
+                                        <tr>
+                                            <th>Famille</th>
+                                            <th>Code</th>
+                                            <th>Formule</th>
+                                            <th class="text-end">Valeur calculée</th>
+                                            <th>Sens</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    {% for f in illustration_action.facteurs %}
+                                        <tr>
+                                            <td><span class="famille-pill fp-{% if f.famille == 'Valeur' %}valeur{% elif f.famille == 'Qualité' %}qualite{% elif f.famille == 'Risque' %}risque{% elif f.famille == 'Taille' %}taille{% elif f.famille == 'Momentum' %}momentum{% else %}liquidite{% endif %}">{{ f.famille }}</span></td>
+                                            <td><code>{{ f.code }}</code></td>
+                                            <td class="text-muted">{{ f.formule }}</td>
+                                            <td class="text-end illus-val {% if f.inverser %}illus-inv{% else %}illus-dir{% endif %}">
+                                                {% if f.valeur is not None %}
+                                                    {{ f.valeur|floatformat:4 }}
+                                                    {% if f.unite %}<small class="text-muted ms-1">{{ f.unite }}</small>{% endif %}
+                                                {% else %}
+                                                    <span class="text-muted">N/D</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if f.inverser %}
+                                                    <span class="text-danger small">↓ faible préféré</span>
+                                                {% else %}
+                                                    <span class="text-success small">↑ élevé préféré</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="small text-muted mt-1 mb-0"><i class="bi bi-info-circle me-1"></i>Les valeurs en <span class="text-success">vert</span> correspondent à des facteurs favorables (score ↑), en <span class="text-danger">rouge</span> à des facteurs inversés (score ↑ si valeur ↓).</p>
+                            {% else %}
+                            <div class="alert alert-secondary small mt-3 mb-0">
+                                <i class="bi bi-hourglass me-1"></i>Aucune donnée disponible — lancez le pipeline pour calculer les 13 facteurs.
+                            </div>
+                            {% endif %}
+
+                            <p class="small text-muted mt-3 mb-0">
+                                <i class="bi bi-code-slash me-1"></i>Implémentation complète : <code>dashboard/strategie_hmm/core/facteurs.py</code> · classe <code>CalculateurFacteurs</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Étape 3 — Portefeuilles long-short -->
+                <div class="tab-pane fade" id="methodo-step-3" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header"><strong>Étape 3 — Construction des 13 portefeuilles factoriels long-short</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Principe Fama-French généralisé</h6>
+                            <p class="small">Pour chaque facteur <em>f</em>, on classe les actions selon leur valeur et on construit un portefeuille long-short :</p>
+                            <ul class="small">
+                                <li><strong>LONG (+1/n<sub>L</sub>)</strong> — Top 20% (1ᵉʳ quintile) des actions selon le facteur</li>
+                                <li><strong>SHORT (−1/n<sub>S</sub>)</strong> — Bottom 20% (5ᵉ quintile) des actions selon le facteur</li>
+                                <li><strong>Équipondération</strong> intra-bucket — somme des poids = 0 (neutralité de marché)</li>
+                                <li><strong>Rebalancement</strong> mensuel — 1ᵉʳ jour ouvré de chaque mois</li>
+                            </ul>
+
+                            <h6 class="text-info mt-3">Pondérations intra-bucket</h6>
+                            <div class="formula-card">
+                                <div class="fc-label">Poids équipondérés long / short</div>
+                                <div class="fc-eq">
+                                    <fvar>w</fvar><sub class="fsub">i,f</sub> = +1 / <fnum>n<sub class="fsub">L</sub></fnum> &nbsp;&nbsp; si i ∈ <strong>LONG</strong> (top 20%)<br>
+                                    <fvar>w</fvar><sub class="fsub">i,f</sub> = −1 / <fnum>n<sub class="fsub">S</sub></fnum> &nbsp;&nbsp; si i ∈ <strong>SHORT</strong> (bottom 20%)<br>
+                                    <fvar>w</fvar><sub class="fsub">i,f</sub> = 0 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; sinon
+                                </div>
+                                <div class="fc-cond">n<sub>L</sub> = nombre d'actions en position longue · n<sub>S</sub> = nombre d'actions en position courte</div>
+                            </div>
+
+                            <h6 class="text-info mt-3">Rendement journalier du portefeuille factoriel</h6>
+                            <div class="formula-card">
+                                <div class="fc-label">Rendement du portefeuille factoriel f au jour t</div>
+                                <div class="fc-eq">
+                                    <fvar>R</fvar><sub class="fsub">f,t</sub> = <fop>Σ</fop><sub class="fsub">i ∈ univers</sub> <fvar>w</fvar><sub class="fsub">i,f</sub> × <fvar>r</fvar><sub class="fsub">i,t</sub>
+                                </div>
+                                <div class="fc-cond">Contrainte : <fop>Σ</fop><sub>i</sub> w<sub>i,f</sub> = 0 &nbsp;(neutralité de marché — aucun capital net engagé)</div>
+                            </div>
+
+                            <h6 class="text-info mt-3">Sortie</h6>
+                            <p class="small mb-0">Une matrice <code>T × 13</code> de rendements journaliers (les 13 séries servent d'entrée au HMM).
+                            Persistée dans la table <code>RendementPortefeuilleFactoriel</code> via <code>construire_portefeuilles_factoriels</code>.</p>
+                            <p class="small text-muted mt-2 mb-0">
+                                <i class="bi bi-code-slash me-1"></i>Implémentation : <code>dashboard/strategie_hmm/core/portefeuilles_factoriels.py</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Étape 4 — Analyse descriptive -->
+                <div class="tab-pane fade" id="methodo-step-4" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header"><strong>Étape 4 — Analyse descriptive &amp; tests de robustesse</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Objectif</h6>
+                            <p class="small">Vérifier que les 13 séries factorielles satisfont les hypothèses statistiques requises pour l'estimation d'un HMM gaussien.</p>
+
+                            <h6 class="text-info mt-3">Tests appliqués (cf. mémoire, chap. III)</h6>
+                            <ul class="small">
+                                <li><strong>Statistiques descriptives</strong> — moyenne, écart-type, skewness, kurtosis, min/max par facteur</li>
+                                <li><strong>Test de stationnarité ADF</strong> (Augmented Dickey-Fuller) — rejet de l'hypothèse de racine unitaire à 5%</li>
+                                <li><strong>Matrice de corrélation</strong> entre les 13 portefeuilles factoriels — détection des redondances</li>
+                                <li><strong>VIF (Variance Inflation Factor)</strong> — seuil &lt; 10 pour éviter la multicolinéarité</li>
+                                <li><strong>Test de normalité Jarque-Bera</strong> — vérification de l'hypothèse gaussienne du HMM</li>
+                            </ul>
+
+                            <h6 class="text-info mt-3">Décision</h6>
+                            <p class="small mb-0">Si un facteur échoue aux tests (non stationnaire ou VIF élevé), il peut être différencié ou retiré. Dans le cadre actuel, les 13 facteurs sont conservés conformément au mémoire de référence.</p>
+                            <div class="alert alert-warning small mt-3 mb-0">
+                                <i class="bi bi-exclamation-triangle me-1"></i>Cette étape est documentée dans le mémoire mais
+                                <strong>n'est pas encore implémentée dans l'application</strong> (à venir : module <code>diagnostics.py</code>).
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Étape 5 — HMM training -->
+                <div class="tab-pane fade" id="methodo-step-5" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header"><strong>Étape 5 — Entraînement du modèle HMM (2 régimes)</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Formalisme</h6>
+                            <p class="small">Le modèle de Markov caché suppose une chaîne latente <em>S<sub>t</sub></em> à 2 états (régime favorable / défavorable) qui gouverne la distribution des 13 rendements factoriels observés :</p>
+                            <pre class="bg-dark text-light p-2 rounded small mb-2"><code>S_t ∈ {0, 1}              (régime caché)
+R_t | S_t = k  ~  N(μ_k, Σ_k)     k = 0, 1
+P(S_t = j | S_{t-1} = i) = A_ij     (matrice de transition)</code></pre>
+
+                            <h6 class="text-info mt-3">Paramètres à estimer</h6>
+                            <ul class="small">
+                                <li><strong>μ<sub>k</sub></strong> ∈ ℝ¹³ — vecteur des moyennes des 13 facteurs sous le régime <em>k</em></li>
+                                <li><strong>Σ<sub>k</sub></strong> ∈ ℝ¹³ˣ¹³ — matrice de covariance des facteurs sous le régime <em>k</em></li>
+                                <li><strong>A</strong> ∈ ℝ²ˣ² — matrice des probabilités de transition (P(S<sub>t+1</sub>|S<sub>t</sub>))</li>
+                                <li><strong>π</strong> ∈ ℝ² — distribution initiale</li>
+                            </ul>
+
+                            <h6 class="text-info mt-3">Algorithme</h6>
+                            <p class="small">Estimation par <strong>EM (Baum-Welch)</strong> — alternance entre :</p>
+                            <ul class="small">
+                                <li><strong>E-step</strong> : forward-backward → calcul des P(S<sub>t</sub>=k | observations, θ)</li>
+                                <li><strong>M-step</strong> : maximisation de la log-vraisemblance ℒ(θ) sur (μ, Σ, A, π)</li>
+                            </ul>
+
+                            <h6 class="text-info mt-3">Sorties persistées</h6>
+                            <p class="small mb-0">Table <code>ParametresHMM</code> — moyennes, covariances, matrice de transition, log-vraisemblance, convergence.</p>
+                            <p class="small text-muted mt-2 mb-0">
+                                <i class="bi bi-code-slash me-1"></i>Implémentation : <code>dashboard/strategie_hmm/core/hmm_engine.py</code> · fonction <code>entrainer_hmm()</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Étape 6 — Régimes -->
+                <div class="tab-pane fade" id="methodo-step-6" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header"><strong>Étape 6 — Détection &amp; confirmation des régimes de marché</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Décodage de Viterbi</h6>
+                            <p class="small">Une fois θ̂ = (μ̂, Σ̂, Â, π̂) estimés, on reconstitue la <strong>séquence la plus probable</strong> des régimes cachés par rétropropagation dynamique :</p>
+
+                            <div class="formula-card">
+                                <div class="fc-label">Algorithme de Viterbi — décodage optimal</div>
+                                <div class="fc-eq">
+                                    Ŝ<sub class="fsub">1:T</sub> = <fop>argmax</fop><sub class="fsub">S<sub>1:T</sub></sub> P(S<sub class="fsub">1:T</sub> | R<sub class="fsub">1:T</sub>, θ̂)
+                                </div>
+                                <div class="fc-cond">Récurrence forward : δ<sub>t</sub>(k) = max<sub>j</sub> [δ<sub>t−1</sub>(j) · A<sub>jk</sub>] · 𝒩(R<sub>t</sub> ; μ̂<sub>k</sub>, Σ̂<sub>k</sub>)</div>
+                            </div>
+
+                            <h6 class="text-info mt-3">Filtre de confirmation (d = 5 jours)</h6>
+                            <p class="small">Pour éviter les changements de régime « bruités » liés à la volatilité quotidienne, on applique un filtre :</p>
+                            <ul class="small">
+                                <li>Un nouveau régime n'est <strong>confirmé</strong> qu'après <em>d = 5</em> jours consécutifs dans cet état</li>
+                                <li>Tant que le seuil n'est pas atteint, on maintient le régime précédent</li>
+                                <li>Cela réduit la rotation du portefeuille et les coûts de transaction</li>
+                            </ul>
+
+                            <h6 class="text-info mt-3">Sortie courante</h6>
+                            <p class="small mb-0">Le régime confirmé du jour est lu dans la table <code>RegimeMarche</code> (champ <code>regime_confirme</code>) — affiché dans le bandeau supérieur de cette page.</p>
+                            <p class="small text-muted mt-2 mb-0">
+                                <i class="bi bi-code-slash me-1"></i>Implémentation : <code>confirmer_regime()</code> dans <code>hmm_engine.py</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Étape 7 — Optimisation -->
+                <div class="tab-pane fade" id="methodo-step-7" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header"><strong>Étape 7 — Optimisation conditionnelle au régime (FSDAA)</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Principe FSDAA <small>(Factor-based Smart Dynamic Asset Allocation)</small></h6>
+                            <p class="small">On alloue dynamiquement entre les <strong>13 portefeuilles factoriels long-short</strong> en utilisant les paramètres (μ̂<sub>k</sub>, Σ̂<sub>k</sub>) du <strong>régime confirmé courant</strong>.</p>
+
+                            <h6 class="text-info mt-3">6 stratégies d'optimisation disponibles</h6>
+                            <div class="table-responsive mb-2">
+                                <table class="table table-sm table-bordered small mb-0">
+                                    <thead class="text-muted"><tr><th>Code</th><th>Stratégie</th><th>Programme d'optimisation</th></tr></thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><code>MR_HMM</code></td><td>Maximum Return</td>
+                                            <td>
+                                                <div class="formula-card py-1">
+                                                    <div class="fc-eq"><fop>max</fop><sub class="fsub">α</sub> <fvar>α</fvar>′<fvar>μ̂</fvar><sub class="fsub">k</sub> &nbsp;·&nbsp; s.c. α ≥ 0, <fop>Σ</fop> α = 1</div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><code>DYN_HMM</code></td><td>Allocation dynamique</td>
+                                            <td>
+                                                <div class="formula-card py-1">
+                                                    <div class="fc-eq"><fvar>α</fvar><sub class="fsub">f</sub> ∝ <fvar>μ̂</fvar><sub class="fsub">k,f</sub> &nbsp;si tous μ̂ &gt; 0, &nbsp;sinon équipondéré</div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr class="table-active">
+                                            <td class="text-info"><code>SHARPE_HMM</code></td><td><strong>Maximum Sharpe (défaut)</strong></td>
+                                            <td>
+                                                <div class="formula-card py-1" style="border-left-color:#ffc107">
+                                                    <div class="fc-eq"><fop>max</fop><sub class="fsub">α</sub> <fnum>α′μ̂<sub class="fsub">k</sub></fnum> / <fnum>√(α′Σ̂<sub class="fsub">k</sub> α)</fnum></div>
+                                                    <div class="fc-cond">s.c. α ≥ 0, Σ α = 1 — résolu par SLSQP</div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><code>RP_HMM</code></td><td>Risk Parity inter-facteurs</td>
+                                            <td>
+                                                <div class="formula-card py-1">
+                                                    <div class="fc-eq"><fvar>α</fvar><sub class="fsub">f</sub> × <fvar>MRC</fvar><sub class="fsub">f</sub> = <fvar>c</fvar> &nbsp; ∀ f</div>
+                                                    <div class="fc-cond">MRC<sub>f</sub> = (Σ̂<sub>k</sub> α)<sub>f</sub> / √(α′Σ̂<sub>k</sub> α) — contribution marginale au risque</div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><code>MD_HMM</code></td><td>Maximum Diversification</td>
+                                            <td>
+                                                <div class="formula-card py-1">
+                                                    <div class="fc-eq"><fop>max</fop><sub class="fsub">α</sub> <fnum>α′σ̂<sub class="fsub">k</sub></fnum> / <fnum>√(α′Σ̂<sub class="fsub">k</sub> α)</fnum></div>
+                                                    <div class="fc-cond">σ̂<sub>k,f</sub> = √Σ̂<sub>k,ff</sub> — volatilité marginale du facteur f</div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><code>MV_HMM</code></td><td>Minimum Variance</td>
+                                            <td>
+                                                <div class="formula-card py-1">
+                                                    <div class="fc-eq"><fop>min</fop><sub class="fsub">α</sub> <fvar>α</fvar>′<fvar>Σ̂</fvar><sub class="fsub">k</sub> <fvar>α</fvar> &nbsp;·&nbsp; s.c. <fop>Σ</fop> α = 1</div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <h6 class="text-info mt-3">Sortie</h6>
+                            <p class="small mb-0">Vecteur <strong>α ∈ ℝ¹³</strong> — poids inter-facteurs (visualisé dans l'onglet <em>Résumé FSDAA</em>).</p>
+                            <p class="small text-muted mt-2 mb-0">
+                                <i class="bi bi-code-slash me-1"></i>Implémentation : <code>dashboard/strategie_hmm/core/optimisation.py</code> · dictionnaire <code>OPTIMISEURS</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Étape 8 — Scoring -->
+                <div class="tab-pane fade" id="methodo-step-8" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header"><strong>Étape 8 — Scoring des actions &amp; sélection Top N</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Passage facteurs → actions individuelles</h6>
+                            <p class="small">Les poids α<sub>f</sub> portent sur des portefeuilles factoriels (abstrait). Pour les traduire en poids sur les actions, on procède par scoring multi-facteurs :</p>
+
+                            <h6 class="text-info mt-3">① Normalisation z-score par facteur</h6>
+                            <div class="formula-card">
+                                <div class="fc-label">Z-score centré-réduit (avec inversion si nécessaire)</div>
+                                <div class="fc-eq">
+                                    <fvar>z</fvar><sub class="fsub">i,f</sub> = <fnum>x<sub class="fsub">i,f</sub> − μ̂<sub class="fsub">f</sub></fnum> / <fnum>σ̂<sub class="fsub">f</sub></fnum>
+                                </div>
+                                <div class="fc-cond">
+                                    Si f ∈ FACTEURS_A_INVERSER = {LEVIER, VARIANCE, BETA} : &nbsp;
+                                    <fvar>z</fvar><sub>i,f</sub> ← −<fvar>z</fvar><sub>i,f</sub>
+                                </div>
+                            </div>
+
+                            <h6 class="text-info mt-3">② Score composite pondéré par les poids FSDAA</h6>
+                            <div class="formula-card">
+                                <div class="fc-label">Score multi-facteurs de l'action i</div>
+                                <div class="fc-eq">
+                                    <fvar>Score</fvar><sub class="fsub">i</sub> = <fop>Σ</fop><sub class="fsub">f = 1</sub><sup class="fsup">13</sup> <fvar>α</fvar><sub class="fsub">f</sub> × <fvar>z</fvar><sub class="fsub">i,f</sub>
+                                </div>
+                                <div class="fc-cond">α<sub>f</sub> = poids du facteur f issu de l'optimisation FSDAA (étape 7) · Σ α<sub>f</sub> = 1</div>
+                            </div>
+
+                            <h6 class="text-info mt-3">③ Sélection Top N &amp; pondération brute</h6>
+                            <div class="formula-card">
+                                <div class="fc-label">Pondération brute long-short</div>
+                                <div class="fc-eq">
+                                    Trier les actions par Score<sub class="fsub">i</sub> décroissant → garder Top N (N = 15 par défaut)<br>
+                                    <fvar>w</fvar><sub class="fsub">i</sub><sup class="fsup">brut</sup> = <fvar>Score</fvar><sub class="fsub">i</sub> / <fop>Σ</fop><sub class="fsub">j ∈ Top N</sub> |Score<sub class="fsub">j</sub>|
+                                </div>
+                                <div class="fc-cond">Somme algébrique ≈ 0 (long-short) → filtrée à l'étape suivante pour obtenir le portefeuille long-only</div>
+                            </div>
+
+                            <h6 class="text-info mt-3">Sortie persistée</h6>
+                            <p class="small mb-0">Champs <code>poids_facteurs</code> et <code>poids_actions</code> de <code>AllocationStrategie</code>, plus les valeurs <code>FacteurStrategie</code> pour la date.</p>
+                            <p class="small text-muted mt-2 mb-0">
+                                <i class="bi bi-code-slash me-1"></i>Implémentation : <code>dashboard/strategie_hmm/core/scoring.py</code> · fonctions <code>scorer_actions()</code> et <code>selectionner_top_n()</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Étape 9 — Allocation réelle -->
+                <div class="tab-pane fade" id="methodo-step-9" role="tabpanel">
+                    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                        <div class="card-header bg-success bg-opacity-10"><strong class="text-success"><i class="bi bi-bag-check-fill me-1"></i>Étape 9 — Allocation réelle du portefeuille global (long-only investissable)</strong></div>
+                        <div class="card-body">
+                            <h6 class="text-info">Contrainte BRVM</h6>
+                            <p class="small">La vente à découvert n'est pas disponible sur la BRVM. Le portefeuille final est donc <strong>long-only</strong> et obtenu en 3 étapes à partir des poids bruts long-short de l'étape 8.</p>
+
+                            <h6 class="text-info mt-3">Procédure de transformation long-only</h6>
+
+                            <div class="formula-card">
+                                <div class="fc-label">① Filtrage — suppression des positions courtes</div>
+                                <div class="fc-eq">Garder uniquement les actions où <fvar>w</fvar><sub class="fsub">i</sub><sup class="fsup">brut</sup> &gt; 0</div>
+                            </div>
+
+                            <div class="formula-card">
+                                <div class="fc-label">② Renormalisation — portefeuille pleinement investi</div>
+                                <div class="fc-eq">
+                                    <fvar>w</fvar><sub class="fsub">i</sub><sup class="fsup">LO</sup> = <fnum>w<sub class="fsub">i</sub><sup class="fsup">brut</sup></fnum> / <fnum><fop>Σ</fop><sub class="fsub">j : w<sub>j</sub>&gt;0</sub> w<sub class="fsub">j</sub><sup class="fsup">brut</sup></fnum>
+                                </div>
+                                <div class="fc-cond">Garantit : <fop>Σ</fop><sub>i</sub> w<sub>i</sub><sup>LO</sup> = 100% &nbsp;(portefeuille pleinement investi)</div>
+                            </div>
+
+                            <div class="formula-card">
+                                <div class="fc-label">③ Allocation en montant (FCFA)</div>
+                                <div class="fc-eq">
+                                    <fvar>Montant</fvar><sub class="fsub">i</sub> = <fvar>Capital</fvar> × <fvar>w</fvar><sub class="fsub">i</sub><sup class="fsup">LO</sup>
+                                </div>
+                                <div class="fc-cond">Calcul interactif disponible dans l'onglet <em>Portefeuille Long-Only</em> via le champ Capital à investir.</div>
+                            </div>
+
+                            <h6 class="text-info mt-3">KPIs attendus du portefeuille global</h6>
+                            <div class="formula-card">
+                                <div class="fc-label">Métriques annualisées (×252 jours ouvrés)</div>
+                                <div class="fc-eq">
+                                    E[R<sub class="fsub">p</sub>] = <fvar>α</fvar>′<fvar>μ̂</fvar><sub class="fsub">k</sub> × 252<br>
+                                    σ<sub class="fsub">p</sub> = √(<fvar>α</fvar>′<fvar>Σ̂</fvar><sub class="fsub">k</sub> <fvar>α</fvar> × 252)<br>
+                                    Sharpe = E[R<sub class="fsub">p</sub>] / σ<sub class="fsub">p</sub>
+                                </div>
+                                <div class="fc-cond">α = poids factoriels FSDAA · μ̂<sub>k</sub>, Σ̂<sub>k</sub> = paramètres HMM du régime k confirmé</div>
+                            </div>
+
+                            <h6 class="text-info mt-3">Déclencheurs de réallocation</h6>
+                            <ul class="small mb-0">
+                                <li><strong>Changement de régime confirmé</strong> (étape 6) — réallocation automatique</li>
+                                <li><strong>Rebalancement mensuel</strong> (1ᵉʳ jour ouvré)</li>
+                                <li><strong>Déclenchement manuel</strong> — bouton « Lancer le pipeline » en haut de la page</li>
+                                <li><strong>Tâche cron</strong> : <code>30 18 * * 1-5</code> (réentraînement + détection régime en fin de séance)</li>
+                            </ul>
+                            <p class="small text-muted mt-3 mb-0">
+                                <i class="bi bi-code-slash me-1"></i>Orchestration : <code>strategie_service.executer_pipeline_complet()</code> · vue : <code>views_strategie.strategie_dashboard</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- ONGLET DIAGNOSTICS — Étape 4 : Analyse descriptive & tests    -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-diagnostics" role="tabpanel">
+    <div class="alert alert-info py-2 small mb-3">
+        <i class="bi bi-clipboard-data me-1"></i>
+        <strong>Robustesse statistique.</strong>
+        Vérification que les 13 séries factorielles satisfont les hypothèses statistiques requises pour l'estimation d'un HMM gaussien.
+        Utilisez les interrupteurs pour <strong>retirer ou réactiver</strong> un facteur du pipeline.
+        <span class="text-muted">Référence : mémoire COULIBALY, chap. III.</span>
+    </div>
+
+    <!-- ── Bandeau facteurs actifs / retirés ───────────────────── -->
+    <div class="alert {% if diagnostics.facteurs_exclus %}alert-warning{% else %}alert-success{% endif %} py-2 small mb-3 d-flex flex-wrap align-items-center gap-2"
+         id="facteurs-actifs-banner">
+        <i class="bi bi-funnel me-1"></i>
+        <strong>Pipeline HMM :</strong>
+        <span><span id="banner-n-actifs">{{ diagnostics.n_actifs }}</span> / {{ diagnostics.n_facteurs }} facteurs actifs</span>
+        <span id="banner-exclus-wrap" {% if not diagnostics.facteurs_exclus %}style="display:none;"{% endif %}>
+            — Retirés :
+            <span id="banner-exclus-list">
+                {% for code in diagnostics.facteurs_exclus %}<span class="badge bg-secondary me-1">{{ code }}</span>{% endfor %}
+            </span>
+        </span>
+        <span class="text-muted ms-auto">Relancez le pipeline pour appliquer.</span>
+    </div>
+
+    {% if not diagnostics.disponible %}
+        <div class="alert alert-warning small">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            Aucun rendement de portefeuille factoriel disponible — lancez d'abord le pipeline pour générer la matrice <code>T × 13</code>.
+        </div>
+    {% else %}
+
+        <!-- ── Verdict global ───────────────────────────────────── -->
+        <div class="row g-2 mb-3">
+            <div class="col-md-3 col-6">
+                <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                    <div class="card-body py-2 text-center">
+                        <div class="small text-muted">Observations</div>
+                        <div class="h5 mb-0">{{ diagnostics.n_obs }} <small class="text-muted">jours</small></div>
+                        <div class="small text-muted">{{ diagnostics.date_min }} → {{ diagnostics.date_max }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                    <div class="card-body py-2 text-center">
+                        <div class="small text-muted">Facteurs testés</div>
+                        <div class="h5 mb-0">{{ diagnostics.n_facteurs }} / 13</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                    <div class="card-body py-2 text-center">
+                        <div class="small text-muted">Stationnarité ADF</div>
+                        {% if diagnostics.verdict.ok_stationnarite %}
+                            <div class="h5 mb-0 text-success"><i class="bi bi-check-circle-fill"></i> OK</div>
+                            <div class="small text-muted">0 série avec racine unitaire</div>
+                        {% else %}
+                            <div class="h5 mb-0 text-warning"><i class="bi bi-exclamation-circle"></i> {{ diagnostics.verdict.nb_non_stationnaires }} échec(s)</div>
+                            <div class="small text-muted">série(s) non stationnaire(s)</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                    <div class="card-body py-2 text-center">
+                        <div class="small text-muted">Multicolinéarité (VIF)</div>
+                        {% if diagnostics.verdict.ok_multicolinearite %}
+                            <div class="h5 mb-0 text-success"><i class="bi bi-check-circle-fill"></i> OK</div>
+                            <div class="small text-muted">tous VIF &lt; {{ diagnostics.seuils.vif }}</div>
+                        {% else %}
+                            <div class="h5 mb-0 text-warning"><i class="bi bi-exclamation-circle"></i> {{ diagnostics.verdict.nb_vif_critiques }} critique(s)</div>
+                            <div class="small text-muted">VIF ≥ {{ diagnostics.seuils.vif }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Statistiques descriptives ───────────────────────── -->
+        <div class="card mb-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+            <div class="card-header py-2"><strong><i class="bi bi-table me-1"></i>1. Statistiques descriptives</strong>
+                <span class="small text-muted ms-2">moyenne, écart-type, skewness, kurtosis (excès), min/max — calculés sur les rendements journaliers des 13 portefeuilles factoriels</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover small mb-0">
+                        <thead class="text-muted">
+                            <tr>
+                                <th>Facteur</th>
+                                <th class="text-end">n</th>
+                                <th class="text-end">Moyenne</th>
+                                <th class="text-end">Écart-type</th>
+                                <th class="text-end">Skewness</th>
+                                <th class="text-end">Kurtosis</th>
+                                <th class="text-end">Min</th>
+                                <th class="text-end">Max</th>
+                                <th class="text-center" style="min-width:130px;">État pipeline</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for r in diagnostics.descriptive %}
+                            <tr class="{% if r.exclu %}table-secondary text-muted{% endif %}" data-facteur-row="{{ r.code }}">
+                                <td><code>{{ r.code }}</code> <span class="text-muted small">{{ r.libelle }}</span></td>
+                                <td class="text-end">{{ r.n }}</td>
+                                <td class="text-end">{{ r.mean|floatformat:5 }}</td>
+                                <td class="text-end">{{ r.std|floatformat:5 }}</td>
+                                <td class="text-end">{{ r.skew|floatformat:3 }}</td>
+                                <td class="text-end">{{ r.kurt|floatformat:3 }}</td>
+                                <td class="text-end text-danger">{{ r.min|floatformat:4 }}</td>
+                                <td class="text-end text-success">{{ r.max|floatformat:4 }}</td>
+                                <td class="text-center">
+                                    <div class="form-check form-switch d-inline-flex align-items-center gap-2 m-0">
+                                        <input class="form-check-input facteur-toggle" type="checkbox"
+                                               role="switch"
+                                               id="toggle-{{ r.code }}"
+                                               data-code="{{ r.code }}"
+                                               {% if not r.exclu %}checked{% endif %}>
+                                        <label class="form-check-label small" for="toggle-{{ r.code }}">
+                                            <span class="badge bg-success facteur-state-actif" {% if r.exclu %}style="display:none;"{% endif %}>Actif</span>
+                                            <span class="badge bg-secondary facteur-state-exclu" {% if not r.exclu %}style="display:none;"{% endif %}>Retiré</span>
+                                        </label>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <!-- ── ADF ──────────────────────────────────────────── -->
+            <div class="col-lg-6">
+                <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                    <div class="card-header py-2"><strong><i class="bi bi-activity me-1"></i>2. Test de stationnarité ADF</strong>
+                        <span class="small text-muted ms-1">H₀ : racine unitaire — rejet si p &lt; {{ diagnostics.seuils.adf_pvalue }}</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover small mb-0">
+                                <thead class="text-muted">
+                                    <tr>
+                                        <th>Facteur</th>
+                                        <th class="text-end">Statistique</th>
+                                        <th class="text-end">p-value</th>
+                                        <th class="text-end">Crit. 5%</th>
+                                        <th class="text-center">Verdict</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for r in diagnostics.adf %}
+                                    <tr>
+                                        <td><code>{{ r.code }}</code></td>
+                                        <td class="text-end">{{ r.stat|floatformat:3 }}</td>
+                                        <td class="text-end">{{ r.pvalue|floatformat:4 }}</td>
+                                        <td class="text-end text-muted">{{ r.crit_5|floatformat:3 }}</td>
+                                        <td class="text-center">
+                                            {% if r.stationnaire %}
+                                                <span class="badge bg-success">Stationnaire</span>
+                                            {% else %}
+                                                <span class="badge bg-warning text-dark">Non stationnaire</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── VIF ──────────────────────────────────────────── -->
+            <div class="col-lg-6">
+                <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                    <div class="card-header py-2"><strong><i class="bi bi-link-45deg me-1"></i>3. VIF — Variance Inflation Factor</strong>
+                        <span class="small text-muted ms-1">seuil critique : {{ diagnostics.seuils.vif }}</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover small mb-0">
+                                <thead class="text-muted">
+                                    <tr>
+                                        <th>Facteur</th>
+                                        <th class="text-end">VIF</th>
+                                        <th class="text-center">Verdict</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for r in diagnostics.vif %}
+                                    <tr>
+                                        <td><code>{{ r.code }}</code> <span class="text-muted small">{{ r.libelle }}</span></td>
+                                        <td class="text-end {% if r.critique %}text-warning fw-bold{% endif %}">{{ r.vif|floatformat:2 }}</td>
+                                        <td class="text-center">
+                                            {% if r.critique %}
+                                                <span class="badge bg-warning text-dark">VIF ≥ {{ diagnostics.seuils.vif }}</span>
+                                            {% else %}
+                                                <span class="badge bg-success">OK</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Jarque-Bera ──────────────────────────────────── -->
+            <div class="col-lg-6">
+                <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                    <div class="card-header py-2"><strong><i class="bi bi-bar-chart-line me-1"></i>4. Test de normalité Jarque-Bera</strong>
+                        <span class="small text-muted ms-1">H₀ : distribution normale — rejet si p &lt; {{ diagnostics.seuils.jb_pvalue }}</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover small mb-0">
+                                <thead class="text-muted">
+                                    <tr>
+                                        <th>Facteur</th>
+                                        <th class="text-end">Statistique JB</th>
+                                        <th class="text-end">p-value</th>
+                                        <th class="text-center">Verdict</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for r in diagnostics.jarque_bera %}
+                                    <tr>
+                                        <td><code>{{ r.code }}</code></td>
+                                        <td class="text-end">{{ r.stat|floatformat:2 }}</td>
+                                        <td class="text-end">{{ r.pvalue|floatformat:4 }}</td>
+                                        <td class="text-center">
+                                            {% if r.normal %}
+                                                <span class="badge bg-success">Normale</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">Non normale</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="px-3 py-2 small text-muted">
+                            <i class="bi bi-info-circle me-1"></i>Les rendements financiers sont rarement gaussiens (queues épaisses). Le HMM reste robuste à des déviations modérées de normalité ; on documente le résultat sans rejeter les facteurs.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Corrélations fortes ──────────────────────────── -->
+            <div class="col-lg-6">
+                <div class="card h-100" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+                    <div class="card-header py-2"><strong><i class="bi bi-diagram-2 me-1"></i>5. Redondances détectées</strong>
+                        <span class="small text-muted ms-1">paires |ρ| ≥ {{ diagnostics.seuils.corr_forte }}</span>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if diagnostics.correlation.redondances %}
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover small mb-0">
+                                <thead class="text-muted">
+                                    <tr>
+                                        <th>Facteur 1</th>
+                                        <th>Facteur 2</th>
+                                        <th class="text-end">Corrélation</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for p in diagnostics.correlation.redondances %}
+                                    <tr>
+                                        <td><code>{{ p.f1 }}</code></td>
+                                        <td><code>{{ p.f2 }}</code></td>
+                                        <td class="text-end {% if p.r > 0 %}text-success{% else %}text-danger{% endif %} fw-bold">{{ p.r|floatformat:3 }}</td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="p-3 small text-success">
+                            <i class="bi bi-check-circle-fill me-1"></i>Aucune paire de facteurs fortement corrélée (|ρ| ≥ {{ diagnostics.seuils.corr_forte }}). Pas de redondance manifeste.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Matrice de corrélation (heatmap Plotly) ──────────── -->
+        <div class="card mt-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+            <div class="card-header py-2"><strong><i class="bi bi-grid-3x3-gap me-1"></i>6. Matrice de corrélation des 13 portefeuilles factoriels</strong></div>
+            <div class="card-body">
+                <div id="diagHeatmap" style="width:100%; height:520px;"></div>
+            </div>
+        </div>
+
+        <!-- ── Décision ────────────────────────────────────────── -->
+        <div class="card mt-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+            <div class="card-header py-2"><strong><i class="bi bi-check2-square me-1"></i>Décision</strong></div>
+            <div class="card-body small">
+                <p class="mb-2">Si un facteur échoue aux tests (<strong>non stationnaire</strong> ou <strong>VIF élevé</strong>), il peut être <em>différencié</em> ou <em>retiré</em> de la matrice d'entrée du HMM.</p>
+                <ul class="mb-0">
+                    <li>Stationnarité : <strong>{{ diagnostics.verdict.nb_non_stationnaires }}</strong> facteur(s) avec racine unitaire (sur {{ diagnostics.verdict.nb_facteurs }})</li>
+                    <li>Multicolinéarité : <strong>{{ diagnostics.verdict.nb_vif_critiques }}</strong> facteur(s) avec VIF ≥ {{ diagnostics.seuils.vif }}</li>
+                    <li>Redondances fortes (|ρ| ≥ {{ diagnostics.seuils.corr_forte }}) : <strong>{{ diagnostics.verdict.nb_redondances }}</strong> paire(s)</li>
+                    <li>Non-normalité JB : <strong>{{ diagnostics.verdict.nb_non_normaux }}</strong> facteur(s) — toléré pour un HMM gaussien (hypothèse documentée et non bloquante)</li>
+                </ul>
+                <p class="text-muted mt-2 mb-0"><i class="bi bi-code-slash me-1"></i>Implémentation : <code>dashboard/strategie_hmm/services/diagnostics.py</code></p>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- ONGLET COMPARAISON — Les 6 stratégies sous le régime courant  -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-comparaison" role="tabpanel">
+    {% if comparaison_strategies %}
+    <div class="alert alert-info py-2 small mb-3">
+        <i class="bi bi-info-circle me-1"></i>
+        Les <strong>6 stratégies d'optimisation</strong> appliquées aux mêmes paramètres (μ̂, Σ̂) du régime confirmé courant
+        <strong>{% if dernier_regime.regime_confirme == 0 %}Régime 0 — Favorable{% else %}Régime 1 — Défavorable{% endif %}</strong>
+        au {{ derniers_params.date_entrainement|date:"d/m/Y" }}.
+        La stratégie active dans la BDD est <span class="badge bg-info">{{ derniere_alloc.get_strategie_display }}</span>.
+    </div>
+
+    <!-- KPIs comparés -->
+    <div class="card mb-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header"><strong><i class="bi bi-speedometer2 me-1"></i>Métriques annualisées attendues</strong></div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Stratégie</th>
+                        <th class="text-end">Rendement attendu</th>
+                        <th class="text-end">Volatilité attendue</th>
+                        <th class="text-end">Sharpe attendu</th>
+                        <th>Statut</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for s in comparaison_strategies %}
+                    <tr {% if s.active %}class="table-active"{% endif %}>
+                        <td>
+                            <strong>{{ s.libelle }}</strong>
+                            <br><small class="text-muted"><code>{{ s.code }}</code></small>
+                        </td>
+                        <td class="text-end {% if s.rendement_annualise > 0 %}text-success{% else %}text-danger{% endif %}">
+                            <strong>{{ s.rendement_annualise|mul:100|floatformat:2 }}%</strong>
+                        </td>
+                        <td class="text-end">{{ s.volatilite_annualisee|mul:100|floatformat:2 }}%</td>
+                        <td class="text-end text-info"><strong>{{ s.sharpe_annualise|floatformat:3 }}</strong></td>
+                        <td>
+                            {% if s.active %}<span class="badge bg-info">Active</span>
+                            {% else %}<button type="button" class="btn btn-sm btn-outline-primary btn-apply-strat" data-strat="{{ s.code }}"><i class="bi bi-play-fill"></i> Appliquer</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Matrice α facteurs × stratégies -->
+    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header">
+            <strong><i class="bi bi-grid-3x3 me-1"></i>Vecteurs d'allocation α (poids inter-facteurs, en %)</strong>
+            <small class="text-muted ms-2">Lignes = facteurs · colonnes = stratégies · une cellule vide signifie poids ≈ 0</small>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0" style="white-space:nowrap;">
+                    <thead>
+                        <tr>
+                            <th>Facteur</th>
+                            {% for s in comparaison_strategies %}
+                                <th class="text-end {% if s.active %}text-info{% endif %}">
+                                    {{ s.code }}{% if s.active %} ★{% endif %}
+                                </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for f in comparaison_facteurs_cols %}
+                        <tr>
+                            <td><span class="badge bg-secondary me-2">{{ f.code }}</span>{{ f.libelle }}</td>
+                            {% for s in comparaison_strategies %}
+                                {% with v=s.poids_facteurs_pct|get_item:f.code %}
+                                    {% if v and v >= 0.05 %}
+                                        <td class="text-end {% if s.active %}fw-bold text-info{% endif %}">{{ v|floatformat:2 }}%</td>
+                                    {% else %}
+                                        <td class="text-end text-muted">—</td>
+                                    {% endif %}
+                                {% endwith %}
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="fw-bold">
+                            <td class="text-end">Σ</td>
+                            {% for s in comparaison_strategies %}
+                                <td class="text-end">100.00%</td>
+                            {% endfor %}
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Évolution temporelle des 13 sous-portefeuilles factoriels -->
+    <div class="card mt-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div>
+                <strong><i class="bi bi-graph-up me-1"></i>Évolution de la performance des 13 sous-portefeuilles factoriels</strong>
+                <small class="text-muted ms-2">Performance cumulée (%) — base 0 au début de la période</small>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Filtre temporel">
+                    <button type="button" class="btn btn-outline-secondary perf-range" data-range="3M">3M</button>
+                    <button type="button" class="btn btn-outline-secondary perf-range" data-range="6M">6M</button>
+                    <button type="button" class="btn btn-outline-secondary perf-range" data-range="1Y">1A</button>
+                    <button type="button" class="btn btn-outline-secondary perf-range" data-range="3Y">3A</button>
+                    <button type="button" class="btn btn-outline-secondary perf-range" data-range="5Y">5A</button>
+                    <button type="button" class="btn btn-outline-secondary perf-range active" data-range="ALL">Tout</button>
+                </div>
+                <input type="date" id="perfDateStart" class="form-control form-control-sm" style="max-width:160px;">
+                <span class="text-muted small">→</span>
+                <input type="date" id="perfDateEnd" class="form-control form-control-sm" style="max-width:160px;">
+            </div>
+        </div>
+        <div class="card-body"><div id="chartPerfFacteurs" style="height: 460px;"></div></div>
+    </div>
+
+    {% else %}
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        Comparaison indisponible — aucune <code>ParametresHMM</code> ni allocation persistée.
+        Lancez d'abord le pipeline.
+    </div>
+    {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- ONGLET 2 — COMPOSITION DES BUCKETS                            -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-buckets" role="tabpanel">
+    <div class="alert alert-info py-2">
+        <i class="bi bi-info-circle me-1"></i>
+        Composition des 13 sous-portefeuilles factoriels au {{ derniere_alloc.date|date:"d/m/Y" }} — quintiles long/short (Top 20% vs Bottom 20%) équipondérés.
+    </div>
+    <div class="accordion" id="accBuckets">
+        {% for b in buckets_par_facteur %}
+        <div class="accordion-item" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+            <h2 class="accordion-header">
+                <button class="accordion-button {% if not forloop.first %}collapsed{% endif %}" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#bk-{{ b.code }}"
+                        style="background: var(--bs-tertiary-bg); color: var(--bs-body-color);">
+                    <span class="badge bg-primary me-2">{{ b.code }}</span>
+                    <strong class="me-2">{{ b.libelle }}</strong>
+                    <span class="badge bg-secondary me-3">{{ b.famille }}</span>
+                    <small class="text-muted">α = {{ b.alpha_pct|floatformat:2 }}% &middot;
+                        {{ b.n_long }} long / {{ b.n_short }} short &middot;
+                        poids ±{{ b.poids_pct_intra|floatformat:2 }}%</small>
+                </button>
+            </h2>
+            <div id="bk-{{ b.code }}" class="accordion-collapse collapse {% if forloop.first %}show{% endif %}" data-bs-parent="#accBuckets">
+                <div class="accordion-body p-0">
+                    <div class="row g-0">
+                        <div class="col-md-6 border-end" style="border-color: var(--bs-border-color) !important;">
+                            <div class="p-2 bg-success bg-opacity-10 text-success"><strong>LONG ▲ ({{ b.n_long }})</strong></div>
+                            <table class="table table-sm mb-0">
+                                <tbody>
+                                {% for a in b.longs %}
+                                    <tr><td style="width:90px"><strong>{{ a.ticker }}</strong></td>
+                                        <td><small class="text-muted">{{ a.nom }}</small></td>
+                                        <td class="text-end text-success">+{{ a.poids_pct|floatformat:2 }}%</td></tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="p-2 bg-danger bg-opacity-10 text-danger"><strong>SHORT ▼ ({{ b.n_short }})</strong></div>
+                            <table class="table table-sm mb-0">
+                                <tbody>
+                                {% for a in b.shorts %}
+                                    <tr><td style="width:90px"><strong>{{ a.ticker }}</strong></td>
+                                        <td><small class="text-muted">{{ a.nom }}</small></td>
+                                        <td class="text-end text-danger">{{ a.poids_pct|floatformat:2 }}%</td></tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="alert alert-warning">Aucun facteur disponible — les valeurs des facteurs ne sont pas calculées pour cette date.</div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- ONGLET 3 — POIDS GLOBAUX (décomposition Actif × Facteur)      -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-poids" role="tabpanel">
+    <div class="alert alert-info py-2 small">
+        <i class="bi bi-info-circle me-1"></i>
+        Décomposition du poids global de chaque actif sur les 13 facteurs.
+        Chaque cellule = α<sub>f</sub> × w<sub>intra</sub> × 100. Cellule vide ⇒ l'actif n'appartient ni au top ni au bottom du facteur.
+    </div>
+    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 70vh;">
+                <table class="table table-sm table-hover mb-0" style="white-space:nowrap;">
+                    <thead class="sticky-top" style="background: var(--bs-tertiary-bg);">
+                        <tr>
+                            <th>Actif</th>
+                            <th class="text-end">Poids Global (%)</th>
+                            <th class="text-center"># L</th>
+                            <th class="text-center"># S</th>
+                            {% for c in facteurs_cols %}
+                                <th class="text-end small">{{ c.code }}<br><span class="text-muted" style="font-weight:400">α={{ c.alpha_pct|floatformat:1 }}%</span></th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in decomposition %}
+                        <tr>
+                            <td><strong>{{ row.ticker }}</strong></td>
+                            <td class="text-end"><strong class="{% if row.poids_global > 0 %}text-success{% else %}text-danger{% endif %}">{{ row.poids_global|floatformat:3 }}</strong></td>
+                            <td class="text-center small">{{ row.nb_long }}</td>
+                            <td class="text-center small">{{ row.nb_short }}</td>
+                            {% for cell in row.cellules %}
+                                {% if cell.valeur is None %}
+                                    <td class="text-end dec-cell-empty">—</td>
+                                {% elif cell.valeur > 0 %}
+                                    <td class="text-end dec-cell-pos">+{{ cell.valeur|floatformat:3 }}</td>
+                                {% else %}
+                                    <td class="text-end dec-cell-neg">{{ cell.valeur|floatformat:3 }}</td>
+                                {% endif %}
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- ONGLET 5 — HEATMAP                                            -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-heatmap" role="tabpanel">
+    <div class="alert alert-info py-2 small">
+        <i class="bi bi-info-circle me-1"></i>
+        Position de chaque actif dans chacun des 13 sous-portefeuilles factoriels.
+        <span class="hm-cell hm-L ms-2">L</span> long &middot;
+        <span class="hm-cell hm-S">S</span> short &middot;
+        <span class="hm-cell hm-N">—</span> hors quintile.
+    </div>
+    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 70vh;">
+                <table class="table table-sm mb-0" style="white-space:nowrap;">
+                    <thead class="sticky-top" style="background: var(--bs-tertiary-bg);">
+                        <tr>
+                            <th>Actif</th>
+                            <th class="text-end">Poids global</th>
+                            {% for c in facteurs_cols %}<th class="text-center small">{{ c.code }}</th>{% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in heatmap_rows %}
+                        <tr>
+                            <td><strong>{{ row.ticker }}</strong></td>
+                            <td class="text-end small {% if row.poids_global > 0 %}text-success{% else %}text-danger{% endif %}">{{ row.poids_global|floatformat:3 }}</td>
+                            {% for cell in row.cells %}
+                                <td class="text-center">
+                                    {% if cell.pos == "L" %}<span class="hm-cell hm-L">L</span>
+                                    {% elif cell.pos == "S" %}<span class="hm-cell hm-S">S</span>
+                                    {% else %}<span class="hm-cell hm-N">—</span>{% endif %}
+                                </td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- ONGLET 6 — PORTEFEUILLE LONG-ONLY INVESTISSABLE               -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-longonly" role="tabpanel">
+    <div class="card mb-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header"><strong>Transformation long-short → long-only</strong></div>
+        <div class="card-body py-2">
+            <div class="row g-2 small">
+                <div class="col-md-3"><span class="badge bg-secondary me-1">Étape 1</span> Poids global brut (long-short) — somme ≈ 0%</div>
+                <div class="col-md-3"><span class="badge bg-secondary me-1">Étape 2</span> Filtrage des actifs à poids positif</div>
+                <div class="col-md-3"><span class="badge bg-secondary me-1">Étape 3</span> Renormalisation : w<sub>i</sub><sup>LO</sup> = w<sub>i</sub><sup>brut</sup> / Σ(w⁺) → somme = 100%</div>
+                <div class="col-md-3"><span class="badge bg-success me-1">Résultat</span> Portefeuille investissable BRVM</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex align-items-center gap-3 mb-3">
+        <label for="capitalInput" class="form-label mb-0 small">Capital à investir (FCFA) :</label>
+        <input type="number" id="capitalInput" class="form-control form-control-sm" style="max-width:200px;" value="1000000" min="0" step="100000">
+        <span class="text-muted small">{{ long_only_list|length }} actifs à acheter</span>
+    </div>
+
+    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header bg-success bg-opacity-10">
+            <strong class="text-success"><i class="bi bi-bag-check-fill me-1"></i>Portefeuille Long-Only — à acheter</strong>
+        </div>
+        <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="tableLongOnly">
+                <thead>
+                    <tr>
+                        <th>#</th><th>Actif</th>
+                        <th class="text-end">Poids brut (%)</th>
+                        <th class="text-end">Poids normalisé (%)</th>
+                        <th class="text-end">Montant (FCFA)</th>
+                        <th class="text-center"># Facteurs Long</th>
+                        <th>Allocation visuelle</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for a in long_only_list %}
+                    <tr data-poids-norm="{{ a.poids_norm|floatformat:6 }}">
+                        <td><span class="badge bg-success">{{ a.rang }}</span></td>
+                        <td><strong>{{ a.ticker }}</strong></td>
+                        <td class="text-end">{{ a.poids_brut|floatformat:3 }}</td>
+                        <td class="text-end"><strong>{{ a.poids_norm|floatformat:2 }}%</strong></td>
+                        <td class="text-end montant-cell">{{ a.montant|format_number }}</td>
+                        <td class="text-center"><span class="factor-pill">{{ a.nb_facteurs_long }}</span></td>
+                        <td style="width:200px"><div class="bar-track"><div class="bar-long" style="width:{{ a.poids_norm|mul:5|floatformat:1 }}%"></div></div></td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="7" class="text-center text-muted py-3">Aucun actif positif.</td></tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="fw-bold"><td colspan="3" class="text-end">TOTAL</td>
+                        <td class="text-end">100.00%</td>
+                        <td class="text-end" id="totalMontant">{{ long_only_list|length|mul:0 }}</td>
+                        <td></td><td></td></tr>
+                </tfoot>
+            </table>
+        </div>
+        </div>
+    </div>
+
+    {% if short_ref_list %}
+    <div class="card mt-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header bg-danger bg-opacity-10">
+            <strong class="text-danger"><i class="bi bi-arrow-down-circle me-1"></i>Référence — Actifs en position Short</strong>
+            <small class="text-muted">si mandat le permet (vente à découvert non disponible sur BRVM)</small>
+        </div>
+        <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 320px;">
+            <table class="table table-sm table-hover mb-0">
+                <thead><tr><th>#</th><th>Actif</th><th class="text-end">Poids brut (%)</th><th class="text-end">Poids côté short (%)</th><th class="text-center"># Facteurs Short</th></tr></thead>
+                <tbody>
+                {% for a in short_ref_list %}
+                    <tr>
+                        <td><span class="badge bg-danger">{{ a.rang }}</span></td>
+                        <td><strong>{{ a.ticker }}</strong></td>
+                        <td class="text-end text-danger">{{ a.poids_brut|floatformat:3 }}</td>
+                        <td class="text-end"><strong>{{ a.poids_norm|floatformat:2 }}%</strong></td>
+                        <td class="text-center"><span class="factor-pill">{{ a.nb_facteurs_short }}</span></td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- ONGLET 7 — RÉGIMES                                            -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-regimes" role="tabpanel">
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="kpi-card"><div class="kpi-icon bg-primary-soft"><i class="bi bi-arrow-repeat"></i></div>
+                <div class="kpi-value">{{ nb_changements }}</div>
+                <div class="kpi-label">Changements de régime confirmés</div></div>
+        </div>
+        {% if derniers_params %}
+        <div class="col-md-3">
+            <div class="kpi-card"><div class="kpi-icon bg-success-soft"><i class="bi bi-database"></i></div>
+                <div class="kpi-value">{{ derniers_params.n_observations }}</div>
+                <div class="kpi-label">Observations entraînement</div></div>
+        </div>
+        <div class="col-md-3">
+            <div class="kpi-card"><div class="kpi-icon bg-warning-soft"><i class="bi bi-graph-up"></i></div>
+                <div class="kpi-value">{{ derniers_params.log_likelihood|floatformat:1 }}</div>
+                <div class="kpi-label">Log-vraisemblance</div></div>
+        </div>
+        <div class="col-md-3">
+            <div class="kpi-card"><div class="kpi-icon bg-info-soft"><i class="bi bi-cpu"></i></div>
+                <div class="kpi-value">{{ derniers_params.n_regimes }}</div>
+                <div class="kpi-label">Nombre de régimes</div></div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="card mb-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header">Évolution temporelle des régimes (confirmés)</div>
+        <div class="card-body"><div id="chartRegimes" style="height: 320px;"></div></div>
+    </div>
+    <div class="card mb-3" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header">Probabilités des régimes au cours du temps</div>
+        <div class="card-body"><div id="chartProbas" style="height: 320px;"></div></div>
+    </div>
+    {% if derniers_params %}
+    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header">Matrice de transition</div>
+        <div class="card-body">
+            <table class="table table-bordered text-center" style="max-width: 400px;">
+                <thead><tr><th></th><th>→ Régime 0</th><th>→ Régime 1</th></tr></thead>
+                <tbody>
+                    <tr><th class="text-success">Régime 0</th>
+                        <td>{{ derniers_params.matrice_transition.0.0|floatformat:4 }}</td>
+                        <td>{{ derniers_params.matrice_transition.0.1|floatformat:4 }}</td></tr>
+                    <tr><th class="text-danger">Régime 1</th>
+                        <td>{{ derniers_params.matrice_transition.1.0|floatformat:4 }}</td>
+                        <td>{{ derniers_params.matrice_transition.1.1|floatformat:4 }}</td></tr>
+                </tbody>
+            </table>
+            <small class="text-muted">P(régime à t+1 | régime à t) — la diagonale forte ⇒ régimes persistants.</small>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- ============================================================ -->
+<!-- ONGLET 8 — HISTORIQUE                                         -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-historique" role="tabpanel">
+    <div class="card" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+        <div class="card-header"><i class="bi bi-list-check me-1"></i> Allocations enregistrées ({{ allocations|length }})</div>
+        <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr><th>Date</th><th>Stratégie</th><th>Régime</th><th>Top 3 facteurs</th>
+                        <th>Top 5 actions</th><th class="text-end">Sharpe attendu</th>
+                        <th class="text-end">Rdt attendu</th><th>Déclencheur</th></tr>
+                </thead>
+                <tbody>
+                {% for row in allocations %}
+                <tr>
+                    <td><strong>{{ row.obj.date|date:"d/m/Y" }}</strong><br><small class="text-muted">{{ row.obj.date_creation|date:"H:i" }}</small></td>
+                    <td><span class="badge bg-primary">{{ row.obj.get_strategie_display }}</span></td>
+                    <td>{% if row.obj.regime %}{% if row.obj.regime.regime_confirme == 0 %}<span class="badge bg-success">Favorable (0)</span>{% else %}<span class="badge bg-danger">Défavorable (1)</span>{% endif %}{% else %}—{% endif %}</td>
+                    <td><small>{% for f in row.top_facteurs %}{{ f.code }}({{ f.poids|mul:100|floatformat:1 }}%){% if not forloop.last %}, {% endif %}{% endfor %}</small></td>
+                    <td><small>{% for a in row.top_actions %}{{ a.ticker }}({{ a.poids|mul:100|floatformat:1 }}%){% if not forloop.last %}, {% endif %}{% endfor %}</small></td>
+                    <td class="text-end">{{ row.obj.sharpe_attendu|floatformat:3 }}</td>
+                    <td class="text-end">{{ row.obj.rendement_attendu|mul:100|floatformat:2 }}%</td>
+                    <td><small class="text-muted">{{ row.obj.declencheur }}</small></td>
+                </tr>
+                {% empty %}
+                    <tr><td colspan="8" class="text-center text-muted py-4">Aucune allocation enregistrée.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        </div>
+    </div>
+</div>
+
+</div><!-- /tab-content -->
+
+{% endif %}
+
+<div id="reallouer-status" class="d-none alert alert-info mt-3"></div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+{% if derniere_alloc %}
+const REGIMES_DATA = {{ regimes_json|safe }};
+
+document.addEventListener('DOMContentLoaded', function() {
+
+    // ---- Onglet 7 : régimes & probabilités (rendu lazy à l'ouverture de l'onglet) ----
+    let regimesRendered = false;
+    function renderRegimes() {
+        if (regimesRendered || !REGIMES_DATA.length) return;
+        regimesRendered = true;
+        const dates = REGIMES_DATA.map(r => r.date);
+        const conf = REGIMES_DATA.map(r => r.regime_confirme);
+        const brut = REGIMES_DATA.map(r => r.regime_brut);
+        Plotly.newPlot('chartRegimes', [
+            {x:dates, y:brut, type:'scatter', mode:'lines', name:'Régime brut',
+             line:{shape:'hv', color:'#6c757d', width:1, dash:'dot'}, opacity:0.5},
+            {x:dates, y:conf, type:'scatter', mode:'lines', name:'Régime confirmé (d=5)',
+             line:{shape:'hv', color:'#0dcaf0', width:2}},
+        ], {
+            paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', font:{color:'#dee2e6'},
+            yaxis:{tickvals:[0,1], ticktext:['Favorable (0)','Défavorable (1)'], range:[-0.2,1.2]},
+            margin:{t:20,b:40,l:120,r:20}, legend:{orientation:'h', y:-0.15}, hovermode:'x unified',
+        }, {responsive:true});
+
+        Plotly.newPlot('chartProbas', [
+            {x:dates, y:REGIMES_DATA.map(r=>r.proba_regime_0), type:'scatter', mode:'lines',
+             name:'P(Régime 0)', line:{color:'#198754'}, fill:'tozeroy', fillcolor:'rgba(25,135,84,0.2)'},
+            {x:dates, y:REGIMES_DATA.map(r=>r.proba_regime_1), type:'scatter', mode:'lines',
+             name:'P(Régime 1)', line:{color:'#dc3545'}, fill:'tozeroy', fillcolor:'rgba(220,53,69,0.2)'},
+        ], {
+            paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', font:{color:'#dee2e6'},
+            yaxis:{range:[0,1]}, margin:{t:20,b:40,l:50,r:20},
+            legend:{orientation:'h', y:-0.15}, hovermode:'x unified',
+        }, {responsive:true});
+    }
+    document.querySelector('a[href="#tab-regimes"]').addEventListener('shown.bs.tab', renderRegimes);
+
+    // ---- Onglet 6 : capital interactif ----
+    const capitalInput = document.getElementById('capitalInput');
+    const fmt = new Intl.NumberFormat('fr-FR');
+    function recalcMontants() {
+        const cap = parseFloat(capitalInput.value) || 0;
+        let total = 0;
+        document.querySelectorAll('#tableLongOnly tbody tr').forEach(tr => {
+            const w = parseFloat(tr.dataset.poidsNorm || '0');
+            const m = Math.round(cap * w / 100);
+            total += m;
+            tr.querySelector('.montant-cell').textContent = fmt.format(m);
+        });
+        const tm = document.getElementById('totalMontant');
+        if (tm) tm.textContent = fmt.format(total);
+    }
+    if (capitalInput) { capitalInput.addEventListener('input', recalcMontants); recalcMontants(); }
+
+    // ---- Bascule sur l'ancre URL (#tab-xxx) ----
+    if (location.hash) {
+        const link = document.querySelector(`a[href="${location.hash}"]`);
+        if (link) new bootstrap.Tab(link).show();
+    }
+});
+{% endif %}
+
+// ---- Bouton réallouer ----
+async function lancerPipeline(strategieCode) {
+    const btn = document.getElementById('btnReallouer');
+    const status = document.getElementById('reallouer-status');
+    if (!btn || !status) return;
+    btn.disabled = true;
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> En cours...';
+    status.classList.remove('d-none', 'alert-danger', 'alert-success');
+    status.classList.add('alert-info');
+    status.textContent = 'Exécution du pipeline HMM (' + strategieCode + ') — entraînement + optimisation + scoring...';
+    try {
+        const csrf = document.cookie.split('; ').find(r => r.startsWith('csrftoken='))?.split('=')[1] || '';
+        const r = await fetch("{% url 'dashboard:api_strategie_declencher_reallocation' %}", {
+            method: 'POST',
+            headers: {'Content-Type':'application/json', 'X-CSRFToken':csrf},
+            body: JSON.stringify({strategie: strategieCode, nb_actions_top: 15})
+        });
+        const data = await r.json();
+        if (data.success) {
+            status.classList.remove('alert-info'); status.classList.add('alert-success');
+            status.innerHTML = '✓ Allocation #' + data.allocation_id + ' créée (' + strategieCode + '). Rechargement...';
+            setTimeout(() => location.reload(), 1200);
+        } else { throw new Error(data.error || 'Erreur inconnue'); }
+    } catch (err) {
+        status.classList.remove('alert-info'); status.classList.add('alert-danger');
+        status.textContent = '✗ ' + err.message;
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+    }
+}
+
+document.getElementById('btnReallouer')?.addEventListener('click', function(e) {
+    e.preventDefault();
+    const code = document.getElementById('selectStrategie')?.value || 'SHARPE_HMM';
+    lancerPipeline(code);
+});
+
+// ---- Boutons "Appliquer" dans l'onglet Comparaison ----
+document.querySelectorAll('.btn-apply-strat').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const code = this.dataset.strat;
+        const sel = document.getElementById('selectStrategie');
+        if (sel) sel.value = code;
+        lancerPipeline(code);
+    });
+});
+
+// ---- Évolution temporelle des 13 sous-portefeuilles factoriels ----
+(function() {
+    const PERF = {{ facteurs_perf_json|safe }};
+    const el = document.getElementById('chartPerfFacteurs');
+    if (!el || !PERF.dates || PERF.dates.length === 0) return;
+
+    // Palette 13 couleurs distinctes
+    const palette = [
+        '#0d6efd','#6610f2','#6f42c1','#d63384','#dc3545','#fd7e14','#ffc107',
+        '#198754','#20c997','#0dcaf0','#adb5bd','#e83e8c','#17a2b8'
+    ];
+    const codes = Object.keys(PERF.series);
+
+    // Index dates pour filtrage rapide
+    const allDates = PERF.dates;
+
+    function buildTraces(startIdx, endIdx) {
+        // Rebase: ramener la première valeur de la fenêtre à 0
+        return codes.map((code, i) => {
+            const full = PERF.series[code].values;
+            const window = full.slice(startIdx, endIdx + 1);
+            const base = window.length ? window[0] : 0;
+            return {
+                x: allDates.slice(startIdx, endIdx + 1),
+                y: window.map(v => +(v - base).toFixed(4)),
+                type: 'scatter', mode: 'lines',
+                name: code + ' — ' + PERF.series[code].libelle,
+                line: { color: palette[i % palette.length], width: 1.6 },
+                hovertemplate: '<b>%{fullData.name}</b><br>%{x}<br>%{y:.2f}%<extra></extra>',
+            };
+        });
+    }
+
+    const layout = {
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { color: '#dee2e6', size: 11 },
+        margin: { t: 10, l: 60, r: 20, b: 60 },
+        legend: { orientation: 'h', y: -0.18 },
+        xaxis: { gridcolor: 'rgba(255,255,255,0.06)' },
+        yaxis: { title: 'Perf. cumulée (%)', ticksuffix: '%', gridcolor: 'rgba(255,255,255,0.08)', zerolinecolor: 'rgba(255,255,255,0.15)' },
+        hovermode: 'x unified',
+    };
+
+    function findIdx(dateStr, fallback) {
+        if (!dateStr) return fallback;
+        // recherche binaire simple
+        let lo = 0, hi = allDates.length - 1, best = fallback;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (allDates[mid] <= dateStr) { best = mid; lo = mid + 1; }
+            else { hi = mid - 1; }
+        }
+        return best;
+    }
+    function findIdxStart(dateStr, fallback) {
+        if (!dateStr) return fallback;
+        let lo = 0, hi = allDates.length - 1, best = fallback;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (allDates[mid] >= dateStr) { best = mid; hi = mid - 1; }
+            else { lo = mid + 1; }
+        }
+        return best;
+    }
+
+    const startInput = document.getElementById('perfDateStart');
+    const endInput = document.getElementById('perfDateEnd');
+    if (startInput && PERF.date_min) { startInput.min = PERF.date_min; startInput.max = PERF.date_max; startInput.value = PERF.date_min; }
+    if (endInput && PERF.date_max) { endInput.min = PERF.date_min; endInput.max = PERF.date_max; endInput.value = PERF.date_max; }
+
+    function render() {
+        const s = findIdxStart(startInput?.value, 0);
+        const e = findIdx(endInput?.value, allDates.length - 1);
+        const lo = Math.min(s, e), hi = Math.max(s, e);
+        Plotly.react(el, buildTraces(lo, hi), layout, {displayModeBar: false, responsive: true});
+    }
+
+    function applyRange(code) {
+        const endStr = PERF.date_max;
+        const end = new Date(endStr);
+        let start;
+        if (code === 'ALL') { start = new Date(PERF.date_min); }
+        else if (code === '3M') { start = new Date(end); start.setMonth(start.getMonth() - 3); }
+        else if (code === '6M') { start = new Date(end); start.setMonth(start.getMonth() - 6); }
+        else if (code === '1Y') { start = new Date(end); start.setFullYear(start.getFullYear() - 1); }
+        else if (code === '3Y') { start = new Date(end); start.setFullYear(start.getFullYear() - 3); }
+        else if (code === '5Y') { start = new Date(end); start.setFullYear(start.getFullYear() - 5); }
+        const minD = new Date(PERF.date_min);
+        if (start < minD) start = minD;
+        const iso = d => d.toISOString().slice(0, 10);
+        if (startInput) startInput.value = iso(start);
+        if (endInput) endInput.value = endStr;
+        render();
+    }
+
+    document.querySelectorAll('.perf-range').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.perf-range').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            applyRange(this.dataset.range);
+        });
+    });
+    startInput?.addEventListener('change', () => {
+        document.querySelectorAll('.perf-range').forEach(b => b.classList.remove('active'));
+        render();
+    });
+    endInput?.addEventListener('change', () => {
+        document.querySelectorAll('.perf-range').forEach(b => b.classList.remove('active'));
+        render();
+    });
+
+    // Rendu initial — lazy lors de l'ouverture de l'onglet pour éviter de calculer si non visible
+    let rendered = false;
+    function lazyRender() { if (!rendered) { rendered = true; render(); } }
+    const compTab = document.querySelector('a[href="#tab-comparaison"]');
+    if (compTab) compTab.addEventListener('shown.bs.tab', lazyRender);
+    // Si on arrive directement via une ancre
+    if (location.hash === '#tab-comparaison') lazyRender();
+})();
+</script>
+
+<!-- ── Heatmap de corrélation — Onglet Diagnostics (étape 4) ─── -->
+<script id="diagnostics-payload" type="application/json">{{ diagnostics_json|safe }}</script>
+<script>
+(function() {
+    const payloadEl = document.getElementById('diagnostics-payload');
+    if (!payloadEl) return;
+    let payload;
+    try { payload = JSON.parse(payloadEl.textContent); } catch (e) { return; }
+    const corr = (payload || {}).correlation || {};
+    const codes = corr.codes || [];
+    const matrix = corr.matrix || [];
+    if (!codes.length || !matrix.length) return;
+
+    let rendered = false;
+    function renderHeatmap() {
+        if (rendered) return;
+        const el = document.getElementById('diagHeatmap');
+        if (!el || typeof Plotly === 'undefined') return;
+        rendered = true;
+
+        // Annotations : afficher la valeur dans chaque cellule
+        const annotations = [];
+        for (let i = 0; i < codes.length; i++) {
+            for (let j = 0; j < codes.length; j++) {
+                const v = matrix[i][j];
+                annotations.push({
+                    x: codes[j], y: codes[i],
+                    text: v.toFixed(2),
+                    showarrow: false,
+                    font: { size: 10, color: Math.abs(v) > 0.5 ? '#fff' : '#bbb' },
+                });
+            }
+        }
+
+        Plotly.newPlot(el, [{
+            z: matrix, x: codes, y: codes,
+            type: 'heatmap',
+            colorscale: [
+                [0.0, '#dc3545'], [0.25, '#fd7e14'],
+                [0.5, '#212529'],
+                [0.75, '#20c997'], [1.0, '#198754'],
+            ],
+            zmin: -1, zmax: 1,
+            hovertemplate: '%{y} ↔ %{x}<br>ρ = %{z:.3f}<extra></extra>',
+            colorbar: { title: 'ρ', tickfont: { color: '#ccc' } },
+        }], {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: '#ccc', size: 11 },
+            margin: { l: 80, r: 40, t: 20, b: 80 },
+            xaxis: { side: 'bottom', tickangle: -45 },
+            yaxis: { autorange: 'reversed' },
+            annotations: annotations,
+        }, { displayModeBar: false, responsive: true });
+    }
+
+    const diagTab = document.querySelector('a[href="#tab-diagnostics"]');
+    if (diagTab) diagTab.addEventListener('shown.bs.tab', renderHeatmap);
+    if (location.hash === '#tab-diagnostics') renderHeatmap();
+
+    // ── Toggle facteur actif / retiré ─────────────────────────
+    const TOGGLE_URL = "{% url 'dashboard:api_strategie_toggle_facteur' %}";
+    const csrfTok = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || '';
+
+    function updateBanner(data) {
+        const banner = document.getElementById('facteurs-actifs-banner');
+        const nActifsEl = document.getElementById('banner-n-actifs');
+        const wrap = document.getElementById('banner-exclus-wrap');
+        const list = document.getElementById('banner-exclus-list');
+        if (nActifsEl) nActifsEl.textContent = data.n_actifs;
+        if (list) {
+            list.innerHTML = (data.facteurs_exclus || [])
+                .map(c => `<span class="badge bg-secondary me-1">${c}</span>`).join('');
+        }
+        if (wrap) wrap.style.display = (data.facteurs_exclus && data.facteurs_exclus.length) ? '' : 'none';
+        if (banner) {
+            banner.classList.toggle('alert-warning', !!(data.facteurs_exclus && data.facteurs_exclus.length));
+            banner.classList.toggle('alert-success', !(data.facteurs_exclus && data.facteurs_exclus.length));
+        }
+    }
+
+    document.querySelectorAll('.facteur-toggle').forEach(input => {
+        input.addEventListener('change', async (ev) => {
+            const cb = ev.currentTarget;
+            const code = cb.dataset.code;
+            const exclu = !cb.checked;  // checked = actif, donc exclu = !checked
+            cb.disabled = true;
+            try {
+                const r = await fetch(TOGGLE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfTok },
+                    body: JSON.stringify({ code, exclu }),
+                });
+                const data = await r.json();
+                if (!data.success) {
+                    cb.checked = !cb.checked;  // revert
+                    alert(data.error || 'Erreur');
+                    return;
+                }
+                const row = document.querySelector(`tr[data-facteur-row="${code}"]`);
+                if (row) row.classList.toggle('table-secondary', exclu);
+                if (row) row.classList.toggle('text-muted', exclu);
+                const aBadge = row && row.querySelector('.facteur-state-actif');
+                const eBadge = row && row.querySelector('.facteur-state-exclu');
+                if (aBadge) aBadge.style.display = exclu ? 'none' : '';
+                if (eBadge) eBadge.style.display = exclu ? '' : 'none';
+                updateBanner(data);
+            } catch (e) {
+                cb.checked = !cb.checked;
+                alert('Erreur réseau : ' + e);
+            } finally {
+                cb.disabled = false;
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}

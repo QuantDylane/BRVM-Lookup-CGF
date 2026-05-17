@@ -1,0 +1,1489 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}Export Factsheet - LOOK UP BRVM{% endblock %}
+{% block page_title %}
+<i class="bi bi-file-earmark-pdf me-2"></i>Export Factsheet PDF
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .factsheet-layout {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        gap: 1.25rem;
+    }
+    .fs-sidebar {
+        position: sticky;
+        top: calc(var(--top-bar-height) + 24px);
+        height: fit-content;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .sidebar-panel {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 14px;
+        padding: 16px;
+    }
+    .sidebar-panel h3 {
+        font-size: 0.95rem;
+        font-weight: 600;
+        margin: 0 0 12px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* Checklist */
+    .actions-checklist {
+        max-height: 340px;
+        overflow-y: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 6px;
+    }
+    .action-cb {
+        display: flex;
+        align-items: center;
+        padding: 7px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.15s;
+        gap: 10px;
+    }
+    .action-cb:hover { background: rgba(79,140,255,0.06); }
+    .action-cb input[type="checkbox"] {
+        width: 16px; height: 16px;
+        accent-color: var(--primary);
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .action-cb .cb-ticker { font-weight: 600; font-size: 0.85rem; }
+    .action-cb .cb-pays { font-size: 0.72rem; color: var(--text-secondary); }
+
+    .sel-actions { display: flex; gap: 6px; margin-top: 8px; }
+    .sel-actions button {
+        flex: 1; padding: 5px 8px; border: 1px solid var(--border-color);
+        background: transparent; border-radius: 8px; font-size: 0.78rem;
+        color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+    }
+    .sel-actions button:hover { border-color: var(--primary); color: var(--primary); }
+    .sel-count {
+        text-align: center; padding: 8px; margin-top: 10px;
+        background: rgba(79,140,255,0.08); border-radius: 8px;
+        font-size: 0.85rem; color: var(--primary); font-weight: 500;
+    }
+
+    /* API Key */
+    .api-key-input {
+        display: flex; gap: 8px; align-items: center;
+    }
+    .api-key-input input {
+        flex: 1; font-size: 0.82rem; padding: 7px 12px;
+    }
+    .api-key-input .btn { padding: 7px 14px; font-size: 0.82rem; white-space: nowrap; }
+    .api-status {
+        margin-top: 8px; font-size: 0.78rem; display: flex; align-items: center; gap: 6px;
+    }
+    .api-dot {
+        width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .api-dot.ok { background: var(--success); }
+    .api-dot.no { background: var(--danger); }
+
+    /* Preview */
+    .preview-area {
+        min-width: 0;
+    }
+    .preview-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 14px;
+        overflow: hidden;
+    }
+    .preview-toolbar {
+        background: linear-gradient(135deg, #4f8cff 0%, #764ba2 100%);
+        padding: 14px 20px;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .preview-toolbar h2 {
+        margin: 0; font-size: 1.1rem; color: white; font-weight: 600;
+    }
+    .preview-toolbar .btn-export {
+        background: white; color: #4f8cff; border: none; border-radius: 10px;
+        padding: 8px 20px; font-weight: 600; font-size: 0.85rem;
+        cursor: pointer; display: flex; align-items: center; gap: 6px;
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .preview-toolbar .btn-export:hover:not(:disabled) {
+        transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .preview-toolbar .btn-export:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* Navigation multi-actions */
+    .preview-nav {
+        display: flex; align-items: center; justify-content: space-between;
+        background: rgba(79,140,255,0.12); padding: 10px 16px;
+        border-radius: 10px; margin: 16px 16px 0;
+    }
+    .nav-btn {
+        background: var(--primary); color: white; border: none;
+        padding: 6px 14px; border-radius: 8px; cursor: pointer;
+        font-weight: 500; font-size: 0.82rem; transition: all 0.15s;
+    }
+    .nav-btn:hover:not(:disabled) { opacity: 0.85; }
+    .nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .nav-info { display: flex; align-items: center; gap: 12px; color: var(--text-primary); }
+    .nav-info select {
+        padding: 4px 10px; border-radius: 8px; font-size: 0.85rem;
+        background: var(--dark-bg); border: 1px solid var(--border-color);
+        color: var(--text-primary); cursor: pointer;
+    }
+
+    /* Factsheet preview content */
+    .fs-preview {
+        padding: 20px;
+    }
+    .fs-header-block {
+        text-align: center; padding-bottom: 14px; margin-bottom: 16px;
+        border-bottom: 2px solid var(--primary);
+    }
+    .fs-header-block h1 {
+        color: var(--primary); font-size: 1.4rem; margin: 0 0 4px;
+    }
+    .fs-header-block .subtitle { color: var(--text-secondary); font-size: 0.82rem; }
+
+    .fs-grid-top {
+        display: grid; grid-template-columns: 1fr 280px;
+        gap: 14px; margin-bottom: 16px;
+    }
+    .fs-desc-box, .fs-metrics-box {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 14px; border-radius: 10px;
+    }
+    .fs-desc-box { font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); }
+    .fs-metrics-box table { width: 100%; font-size: 0.82rem; }
+    .fs-metrics-box td { padding: 5px 0; border-bottom: 1px solid var(--border-color); }
+    .fs-metrics-box td:first-child { color: var(--text-secondary); }
+    .fs-metrics-box td:last-child { text-align: right; font-weight: 600; }
+
+    .fs-chart-box {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 14px; border-radius: 10px; margin-bottom: 16px; height: 280px;
+    }
+
+    .fs-perf-grid {
+        display: grid; grid-template-columns: 1fr 1fr;
+        gap: 14px; margin-bottom: 16px;
+    }
+    .fs-perf-section {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 14px; border-radius: 10px;
+    }
+    .fs-perf-section h4 {
+        font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .perf-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    .perf-table th, .perf-table td { padding: 5px 8px; text-align: center; }
+    .perf-table th { background: var(--primary); color: white; font-size: 0.72rem; }
+    .perf-table th:first-child, .perf-table td:first-child { text-align: left; }
+    .perf-table td { border-bottom: 1px solid var(--border-color); }
+    .positive { color: var(--success); font-weight: 600; }
+    .negative { color: var(--danger); font-weight: 600; }
+
+    .tech-summary {
+        background: rgba(79,140,255,0.05); padding: 12px; border-radius: 8px;
+        font-size: 0.82rem; margin-top: 12px;
+    }
+    .tech-summary > div { margin-bottom: 6px; }
+    .tech-summary strong { color: var(--text-primary); }
+
+    /* Comments section */
+    .fs-comments-section {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 16px; border-radius: 10px; margin-bottom: 16px;
+    }
+    .fs-comments-section h4 {
+        font-size: 0.95rem; margin: 0 0 14px; display: flex; align-items: center; gap: 8px;
+    }
+    .comment-block { margin-bottom: 14px; }
+    .comment-block label {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 0.82rem; font-weight: 500; color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+    .comment-block textarea {
+        width: 100%; min-height: 90px; padding: 10px 14px;
+        background: var(--dark-bg); border: 1px solid var(--border-color);
+        border-radius: 10px; color: var(--text-primary); font-size: 0.85rem;
+        resize: vertical; line-height: 1.5;
+    }
+    .comment-block textarea:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(79,140,255,0.12);
+        outline: none;
+    }
+    .gen-btn {
+        background: linear-gradient(135deg, #4f8cff 0%, #764ba2 100%);
+        color: white; border: none; border-radius: 6px;
+        padding: 4px 12px; font-size: 0.75rem; cursor: pointer;
+        transition: opacity 0.15s;
+    }
+    .gen-btn:hover:not(:disabled) { opacity: 0.85; }
+    .gen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .comment-actions {
+        display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;
+    }
+    .btn-generate-all {
+        background: linear-gradient(135deg, #4f8cff 0%, #764ba2 100%);
+        color: white; border: none; padding: 8px 18px; border-radius: 10px;
+        font-size: 0.85rem; font-weight: 500; cursor: pointer;
+        display: flex; align-items: center; gap: 6px; transition: all 0.15s;
+    }
+    .btn-generate-all:hover:not(:disabled) { transform: translateY(-1px); }
+    .btn-generate-all:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-save-comment {
+        background: var(--success); color: white; border: none;
+        padding: 8px 18px; border-radius: 10px; font-size: 0.85rem;
+        font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px;
+    }
+    .btn-save-comment:hover:not(:disabled) { opacity: 0.85; }
+
+    .disclaimer-box {
+        background: rgba(246,195,67,0.06); border: 1px solid rgba(246,195,67,0.2);
+        border-radius: 10px; padding: 12px; margin-top: 14px;
+    }
+    .disclaimer-box label {
+        font-size: 0.82rem; font-weight: 500; color: var(--warning);
+        margin-bottom: 6px; display: block;
+    }
+    .disclaimer-box textarea {
+        width: 100%; min-height: 50px; padding: 8px 12px;
+        background: var(--dark-bg); border: 1px solid rgba(246,195,67,0.2);
+        border-radius: 8px; color: var(--text-secondary); font-size: 0.8rem;
+        resize: vertical;
+    }
+
+    /* Empty state */
+    .empty-state {
+        text-align: center; padding: 60px 20px; color: var(--text-secondary);
+    }
+    .empty-state i { font-size: 3rem; opacity: 0.3; }
+    .empty-state p { margin-top: 14px; font-size: 0.92rem; }
+
+    /* Multi-export info */
+    .multi-info {
+        background: rgba(0,217,126,0.08); border: 1px solid rgba(0,217,126,0.2);
+        border-radius: 10px; padding: 12px 16px; text-align: center;
+        font-size: 0.85rem; color: var(--success); margin-top: 14px;
+    }
+
+    /* Recent comments */
+    .recent-comments { max-height: 200px; overflow-y: auto; }
+    .rc-item {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 8px; border-radius: 8px; margin-bottom: 4px;
+        font-size: 0.78rem; transition: background 0.15s;
+    }
+    .rc-item:hover { background: rgba(79,140,255,0.06); }
+    .rc-ticker { font-weight: 600; color: var(--primary); }
+    .rc-date { color: var(--text-secondary); }
+    .rc-actions { display: flex; gap: 4px; }
+    .rc-actions button {
+        background: transparent; border: none; color: var(--text-secondary);
+        cursor: pointer; font-size: 0.85rem; padding: 2px 4px;
+    }
+    .rc-actions button:hover { color: var(--primary); }
+
+    /* Spinner */
+    .spinner-sm {
+        display: inline-block; width: 14px; height: 14px;
+        border: 2px solid currentColor; border-radius: 50%;
+        border-top-color: transparent; animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 1200px) {
+        .factsheet-layout { grid-template-columns: 1fr; }
+        .fs-sidebar { position: static; }
+        .fs-grid-top { grid-template-columns: 1fr; }
+        .fs-perf-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ===== Onglets ===== */
+    .fs-tabs {
+        display: flex; gap: 4px; margin-bottom: 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 0;
+    }
+    .fs-tab {
+        background: transparent; border: 1px solid transparent; border-bottom: none;
+        color: var(--text-secondary); padding: 10px 22px;
+        font-size: 0.92rem; font-weight: 500; cursor: pointer;
+        border-radius: 10px 10px 0 0; transition: all 0.15s;
+        display: flex; align-items: center; gap: 8px;
+        margin-bottom: -1px;
+    }
+    .fs-tab:hover { color: var(--primary); background: rgba(79,140,255,0.05); }
+    .fs-tab.active {
+        color: var(--primary); background: var(--card-bg);
+        border-color: var(--border-color);
+        border-bottom: 1px solid var(--card-bg);
+        font-weight: 600;
+    }
+    .fs-tab-content { display: none; }
+    .fs-tab-content.active { display: block; }
+
+    /* ===== Reporting Marché ===== */
+    .market-report-card {
+        background: var(--card-bg); border: 1px solid var(--border-color);
+        border-radius: 14px; overflow: hidden;
+    }
+    .mr-toolbar {
+        background: linear-gradient(135deg, #4f8cff 0%, #764ba2 100%);
+        padding: 14px 20px;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .mr-toolbar h2 { margin: 0; font-size: 1.1rem; color: white; font-weight: 600; }
+    .mr-toolbar .btn-export-mr {
+        background: white; color: #4f8cff; border: none; border-radius: 10px;
+        padding: 8px 20px; font-weight: 600; font-size: 0.85rem;
+        cursor: pointer; display: flex; align-items: center; gap: 6px;
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .mr-toolbar .btn-export-mr:hover:not(:disabled) {
+        transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .mr-toolbar .btn-export-mr:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .mr-preview { padding: 20px; }
+    .mr-header { text-align: center; padding-bottom: 14px; margin-bottom: 16px;
+        border-bottom: 2px solid var(--primary); }
+    .mr-header h1 { color: var(--primary); font-size: 1.35rem; margin: 0 0 4px; }
+    .mr-header .subtitle { color: var(--text-secondary); font-size: 0.82rem; }
+
+    .mr-top-grid {
+        display: grid; grid-template-columns: 1fr 1fr;
+        gap: 14px; margin-bottom: 16px;
+    }
+    .mr-box {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 14px; border-radius: 10px;
+    }
+    .mr-box h4 {
+        font-size: 0.88rem; color: var(--text-secondary); margin: 0 0 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .mr-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .mr-table th, .mr-table td { padding: 6px 8px; }
+    .mr-table th { background: var(--primary); color: white; font-size: 0.72rem;
+        text-align: left; font-weight: 600; }
+    .mr-table th:not(:first-child), .mr-table td:not(:first-child) { text-align: right; }
+    .mr-table td { border-bottom: 1px solid var(--border-color); }
+    .mr-stat-line { display: flex; justify-content: space-between;
+        padding: 6px 0; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; }
+    .mr-stat-line:last-child { border-bottom: none; }
+    .mr-stat-line .lbl { color: var(--text-secondary); }
+    .mr-stat-line .val { font-weight: 600; }
+
+    .mr-chart-box {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 14px; border-radius: 10px; margin-bottom: 16px; height: 260px;
+    }
+
+    .mr-perf-grid {
+        display: grid; grid-template-columns: 1fr 1fr;
+        gap: 14px; margin-bottom: 16px;
+    }
+    .mr-mover-grid {
+        display: grid; grid-template-columns: 1fr 1fr;
+        gap: 14px; margin-bottom: 16px;
+    }
+
+    .mr-comment-section {
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+        padding: 16px; border-radius: 10px; margin-bottom: 16px;
+    }
+    .mr-comment-section h4 {
+        font-size: 0.95rem; margin: 0 0 14px;
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .mr-comment-section textarea {
+        width: 100%; min-height: 120px; padding: 10px 14px;
+        background: var(--dark-bg); border: 1px solid var(--border-color);
+        border-radius: 10px; color: var(--text-primary); font-size: 0.85rem;
+        resize: vertical; line-height: 1.5;
+    }
+
+    @media (max-width: 1200px) {
+        .mr-top-grid, .mr-perf-grid, .mr-mover-grid { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- ========== ONGLETS ========== -->
+<div class="fs-tabs">
+    <button class="fs-tab active" data-tab="tab-action" onclick="switchTab('tab-action')">
+        <i class="bi bi-building"></i> Factsheet Action
+    </button>
+    <button class="fs-tab" data-tab="tab-market" onclick="switchTab('tab-market')">
+        <i class="bi bi-globe2"></i> Reporting Marché
+    </button>
+</div>
+
+<!-- ========== ONGLET 1 : FACTSHEET ACTION ========== -->
+<div id="tab-action" class="fs-tab-content active">
+<div class="factsheet-layout">
+    <!-- ========== SIDEBAR ========== -->
+    <div class="fs-sidebar">
+        <!-- Sélection des actions -->
+        <div class="sidebar-panel">
+            <h3><i class="bi bi-check2-square"></i> Sélection des actions</h3>
+            <div class="mb-2">
+                <input type="text" id="searchFilter" class="form-control form-control-sm" placeholder="Rechercher un ticker..." oninput="filterCheckboxes()">
+            </div>
+            <div class="actions-checklist" id="actionsList">
+                {% for action in actions %}
+                <label class="action-cb" data-ticker="{{ action.ticker }}" data-pays="{{ action.pays }}">
+                    <input type="checkbox" value="{{ action.ticker }}" onchange="updateSelection()">
+                    <div>
+                        <div class="cb-ticker">{{ action.ticker }}</div>
+                        <div class="cb-pays">{{ action.pays|upper }}</div>
+                    </div>
+                </label>
+                {% endfor %}
+            </div>
+            <div class="sel-actions">
+                <button onclick="selectAll()">Tout sélectionner</button>
+                <button onclick="deselectAll()">Tout désélectionner</button>
+            </div>
+            <div class="sel-count" id="selCount">0 action(s) sélectionnée(s)</div>
+        </div>
+
+        <!-- Clé API Claude -->
+        <div class="sidebar-panel">
+            <h3><i class="bi bi-key"></i> Clé API Claude</h3>
+            <div class="api-key-input">
+                <input type="password" id="apiKeyInput" class="form-control form-control-sm"
+                       placeholder="sk-ant-..."
+                       {% if api_key_configured %}value="••••••••••"{% endif %}>
+                <button class="btn btn-primary btn-sm" onclick="saveApiKey()" id="btnSaveKey">
+                    <i class="bi bi-check-lg"></i>
+                </button>
+            </div>
+            <div class="api-status" id="apiStatus">
+                {% if api_key_configured %}
+                <span class="api-dot ok"></span> Clé configurée
+                {% else %}
+                <span class="api-dot no"></span> Non configurée
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Historique récent -->
+        {% if recent_comments %}
+        <div class="sidebar-panel">
+            <h3><i class="bi bi-clock-history"></i> Commentaires récents</h3>
+            <div class="recent-comments">
+                {% for c in recent_comments %}
+                <div class="rc-item" id="rc-{{ c.id }}">
+                    <div>
+                        <span class="rc-ticker">{{ c.action.ticker }}</span>
+                        <span class="rc-date">{{ c.date_creation|date:"d/m/Y" }}</span>
+                    </div>
+                    <div class="rc-actions">
+                        <button title="Favori" onclick="toggleFavorite({{ c.id }}, this)">
+                            <i class="bi {% if c.favori %}bi-star-fill text-warning{% else %}bi-star{% endif %}"></i>
+                        </button>
+                        <button title="Supprimer" onclick="deleteComment({{ c.id }})">
+                            <i class="bi bi-trash3"></i>
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ========== MAIN PREVIEW ========== -->
+    <div class="preview-area">
+        <div class="preview-card">
+            <div class="preview-toolbar">
+                <h2><i class="bi bi-file-earmark-pdf me-2"></i>Aperçu du Factsheet</h2>
+                <button class="btn-export" id="exportBtn" onclick="exportFactsheets()" disabled>
+                    <span id="exportBtnText"><i class="bi bi-download me-1"></i>Exporter en PDF</span>
+                </button>
+            </div>
+
+            <!-- Empty state -->
+            <div id="emptyState" class="empty-state">
+                <i class="bi bi-file-earmark-richtext"></i>
+                <p>Sélectionnez une ou plusieurs actions pour prévisualiser le factsheet</p>
+            </div>
+
+            <!-- Preview container -->
+            <div id="previewContainer" style="display:none;">
+                <!-- Navigation multi-actions -->
+                <div id="previewNav" class="preview-nav" style="display:none;">
+                    <button class="nav-btn" onclick="navigatePreview(-1)" id="prevBtn"><i class="bi bi-chevron-left me-1"></i>Précédent</button>
+                    <div class="nav-info">
+                        <select id="previewSelector" onchange="loadPreviewByIndex(this.value)"></select>
+                        <span><strong id="curIdx">1</strong> / <span id="totalCount">1</span></span>
+                    </div>
+                    <button class="nav-btn" onclick="navigatePreview(1)" id="nextBtn">Suivant<i class="bi bi-chevron-right ms-1"></i></button>
+                </div>
+
+                <!-- FACTSHEET PREVIEW -->
+                <div class="fs-preview">
+                    <!-- Header -->
+                    <div class="fs-header-block">
+                        <h1 id="fsTitle">-</h1>
+                        <div class="subtitle" id="fsSubtitle">-</div>
+                    </div>
+
+                    <!-- Description + Metrics -->
+                    <div class="fs-grid-top">
+                        <div class="fs-desc-box" id="fsDesc">
+                            <strong>Présentation</strong><br>
+                            <span id="fsDescText">-</span>
+                        </div>
+                        <div class="fs-metrics-box">
+                            <table>
+                                <tr><td>Prix actuel</td><td id="fsPrice">-</td></tr>
+                                <tr><td>Dernière date</td><td id="fsDate">-</td></tr>
+                                <tr><td>RSI (14)</td><td id="fsRsi">-</td></tr>
+                                <tr><td>MACD</td><td id="fsMacd">-</td></tr>
+                                <tr><td>Signal MACD</td><td id="fsMacdSignal">-</td></tr>
+                                <tr><td>SMA 20 / SMA 50</td><td id="fsSma">-</td></tr>
+                                <tr><td>Volatilité ann.</td><td id="fsVol">-</td></tr>
+                                <tr><td>PER</td><td id="fsPer">-</td></tr>
+                                <tr><td>Dividende</td><td id="fsDiv">-</td></tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Chart -->
+                    <div class="fs-chart-box">
+                        <canvas id="compChart"></canvas>
+                    </div>
+
+                    <!-- Performance Tables -->
+                    <div class="fs-perf-grid">
+                        <div class="fs-perf-section">
+                            <h4><i class="bi bi-calendar3"></i> Performances calendaires</h4>
+                            <table class="perf-table">
+                                <thead><tr><th>Période</th><th id="colCalAct">Action</th><th>BRVMC</th></tr></thead>
+                                <tbody>
+                                    <tr><td>WTD</td><td id="calWtdA">-</td><td id="calWtdI">-</td></tr>
+                                    <tr><td>MTD</td><td id="calMtdA">-</td><td id="calMtdI">-</td></tr>
+                                    <tr><td>QTD</td><td id="calQtdA">-</td><td id="calQtdI">-</td></tr>
+                                    <tr><td>STD</td><td id="calStdA">-</td><td id="calStdI">-</td></tr>
+                                    <tr><td>YTD</td><td id="calYtdA">-</td><td id="calYtdI">-</td></tr>
+                                </tbody>
+                            </table>
+
+                            <h4 style="margin-top:14px;"><i class="bi bi-graph-up-arrow"></i> Performances glissantes</h4>
+                            <table class="perf-table">
+                                <thead><tr><th>Période</th><th id="colRollAct">Action</th><th>BRVMC</th></tr></thead>
+                                <tbody>
+                                    <tr><td>1 semaine</td><td id="roll1wA">-</td><td id="roll1wI">-</td></tr>
+                                    <tr><td>1 mois</td><td id="roll1mA">-</td><td id="roll1mI">-</td></tr>
+                                    <tr><td>3 mois</td><td id="roll3mA">-</td><td id="roll3mI">-</td></tr>
+                                    <tr><td>6 mois</td><td id="roll6mA">-</td><td id="roll6mI">-</td></tr>
+                                    <tr><td>1 an</td><td id="roll1yA">-</td><td id="roll1yI">-</td></tr>
+                                    <tr><td>3 ans</td><td id="roll3yA">-</td><td id="roll3yI">-</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="fs-perf-section">
+                            <h4><i class="bi bi-link-45deg"></i> Beta & Corrélation</h4>
+                            <table class="perf-table">
+                                <thead><tr><th>Période</th><th>Beta</th><th>Corrél.</th><th>R²</th></tr></thead>
+                                <tbody>
+                                    <tr><td>3 mois</td><td id="beta3m">-</td><td id="corr3m">-</td><td id="rsq3m">-</td></tr>
+                                    <tr><td>6 mois</td><td id="beta6m">-</td><td id="corr6m">-</td><td id="rsq6m">-</td></tr>
+                                    <tr><td>1 an</td><td id="beta1y">-</td><td id="corr1y">-</td><td id="rsq1y">-</td></tr>
+                                    <tr><td>3 ans</td><td id="beta3y">-</td><td id="corr3y">-</td><td id="rsq3y">-</td></tr>
+                                    <tr><td>Origine</td><td id="betaAll">-</td><td id="corrAll">-</td><td id="rsqAll">-</td></tr>
+                                </tbody>
+                            </table>
+
+                            <h4 style="margin-top:14px;"><i class="bi bi-speedometer"></i> Indicateurs techniques</h4>
+                            <div class="tech-summary">
+                                <div><strong>RSI (14) :</strong> <span id="rsiInterp">-</span></div>
+                                <div><strong>MACD :</strong> <span id="macdInterp">-</span></div>
+                                <div><strong>Tendance :</strong> <span id="trendInterp">-</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Comments -->
+                    <div class="fs-comments-section">
+                        <h4><i class="bi bi-robot"></i> Commentaires IA</h4>
+
+                        <div class="comment-block">
+                            <label>
+                                Analyse des métriques
+                                <button class="gen-btn" onclick="generateComment('analysis')" id="genAnalysisBtn">
+                                    <i class="bi bi-stars me-1"></i>Générer
+                                </button>
+                            </label>
+                            <textarea id="analysisComment" placeholder="Cliquez 'Générer' ou saisissez votre analyse..." onblur="onCommentChange()"></textarea>
+                        </div>
+
+                        <div class="comment-block">
+                            <label>
+                                Recommandation
+                                <button class="gen-btn" onclick="generateComment('recommendation')" id="genRecoBtn">
+                                    <i class="bi bi-stars me-1"></i>Générer
+                                </button>
+                            </label>
+                            <textarea id="recoComment" placeholder="ACHETER / NEUTRE / VENDRE — Justification..." onblur="onCommentChange()"></textarea>
+                        </div>
+
+                        <div class="comment-actions">
+                            <button class="btn-generate-all" id="genAllBtn" onclick="generateComment('both')">
+                                <span id="genAllText"><i class="bi bi-stars me-1"></i>Générer les deux commentaires</span>
+                            </button>
+                            <button class="btn-save-comment" onclick="saveComment()">
+                                <i class="bi bi-floppy me-1"></i>Sauvegarder
+                            </button>
+                        </div>
+
+                        <div class="disclaimer-box">
+                            <label><i class="bi bi-exclamation-triangle me-1"></i>Disclaimer</label>
+                            <textarea id="disclaimerText">Ce document est fourni à titre informatif uniquement et ne constitue pas un conseil en investissement. Les performances passées ne préjugent pas des performances futures. CGF Gestion décline toute responsabilité quant aux décisions prises sur la base de ce document.</textarea>
+                        </div>
+                    </div>
+
+                    <!-- Multi export info -->
+                    <div id="multiInfo" class="multi-info" style="display:none;">
+                        <i class="bi bi-file-zip me-1"></i>
+                        <strong>Export multiple :</strong> <span id="multiCount">0</span> actions sélectionnées — un fichier ZIP sera généré.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</div><!-- /tab-action -->
+
+<!-- ========== ONGLET 2 : REPORTING MARCHÉ ========== -->
+<div id="tab-market" class="fs-tab-content">
+    <div class="market-report-card">
+        <div class="mr-toolbar">
+            <h2><i class="bi bi-globe2 me-2"></i>Reporting Marché BRVM (1 page A4)</h2>
+            <button class="btn-export-mr" id="exportMrBtn" onclick="exportMarketReport()">
+                <span id="exportMrBtnText"><i class="bi bi-download me-1"></i>Exporter en PDF</span>
+            </button>
+        </div>
+
+        <div class="mr-preview" id="mrPreview">
+            <!-- État chargement -->
+            <div id="mrLoading" class="empty-state">
+                <i class="bi bi-hourglass-split"></i>
+                <p>Chargement des données marché…</p>
+            </div>
+
+            <div id="mrContent" style="display:none;">
+                <!-- Header -->
+                <div class="mr-header">
+                    <h1>REPORTING MARCHÉ BRVM</h1>
+                    <div class="subtitle" id="mrSubtitle">-</div>
+                </div>
+
+                <!-- Indices + Stats -->
+                <div class="mr-top-grid">
+                    <div class="mr-box">
+                        <h4><i class="bi bi-bar-chart-line"></i> Indices phares</h4>
+                        <table class="mr-table">
+                            <thead>
+                                <tr><th>Indice</th><th>Clôture</th><th>Var. j</th></tr>
+                            </thead>
+                            <tbody id="mrIndicesBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="mr-box">
+                        <h4><i class="bi bi-graph-up"></i> Statistiques marché</h4>
+                        <div id="mrStatsBody"></div>
+                    </div>
+                </div>
+
+                <!-- Chart BRVMC -->
+                <div class="mr-chart-box">
+                    <canvas id="mrChart"></canvas>
+                </div>
+
+                <!-- Perfs -->
+                <div class="mr-perf-grid">
+                    <div class="mr-box">
+                        <h4><i class="bi bi-calendar3"></i> Performances calendaires BRVMC</h4>
+                        <table class="mr-table">
+                            <thead><tr><th>Période</th><th>BRVMC</th></tr></thead>
+                            <tbody id="mrCalBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="mr-box">
+                        <h4><i class="bi bi-graph-up-arrow"></i> Performances glissantes BRVMC</h4>
+                        <table class="mr-table">
+                            <thead><tr><th>Période</th><th>BRVMC</th></tr></thead>
+                            <tbody id="mrRollBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Top movers -->
+                <div class="mr-mover-grid">
+                    <div class="mr-box">
+                        <h4><i class="bi bi-arrow-up-circle text-success"></i> Top 5 hausses</h4>
+                        <table class="mr-table">
+                            <thead><tr><th>Ticker</th><th>Cours</th><th>Var.</th></tr></thead>
+                            <tbody id="mrHaussesBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="mr-box">
+                        <h4><i class="bi bi-arrow-down-circle text-danger"></i> Top 5 baisses</h4>
+                        <table class="mr-table">
+                            <thead><tr><th>Ticker</th><th>Cours</th><th>Var.</th></tr></thead>
+                            <tbody id="mrBaissesBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Top volumes -->
+                <div class="mr-box" style="margin-bottom:16px;">
+                    <h4><i class="bi bi-cash-stack"></i> Top 5 volumes échangés</h4>
+                    <table class="mr-table">
+                        <thead>
+                            <tr><th>Ticker</th><th>Cours</th><th>Volume (FCFA)</th><th>Part marché</th></tr>
+                        </thead>
+                        <tbody id="mrVolBody"></tbody>
+                    </table>
+                </div>
+
+                <!-- Commentaire IA marché -->
+                <div class="mr-comment-section">
+                    <h4>
+                        <span><i class="bi bi-robot"></i> Commentaire marché (IA)</span>
+                        <button class="gen-btn" onclick="generateMarketComment()" id="genMarketBtn">
+                            <i class="bi bi-stars me-1"></i>Générer
+                        </button>
+                    </h4>
+                    <textarea id="mrComment" placeholder="Cliquez 'Générer' pour produire un commentaire IA de la séance, ou saisissez le vôtre…"></textarea>
+                    <div class="disclaimer-box" style="margin-top:14px;">
+                        <label><i class="bi bi-exclamation-triangle me-1"></i>Disclaimer</label>
+                        <textarea id="mrDisclaimer">Ce reporting est fourni à titre informatif uniquement et ne constitue pas un conseil en investissement. Les performances passées ne préjugent pas des performances futures. CGF Bourse décline toute responsabilité quant aux décisions prises sur la base de ce document.</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div><!-- /tab-market -->
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let selectedActions = [];
+let currentData = null;
+let compChart = null;
+let currentIdx = 0;
+let allCache = {};
+let commentsCache = {};
+
+// ---- Filters ----
+function filterCheckboxes() {
+    const q = document.getElementById('searchFilter').value.toLowerCase();
+    document.querySelectorAll('.action-cb').forEach(el => {
+        const t = el.dataset.ticker.toLowerCase();
+        const p = el.dataset.pays.toLowerCase();
+        el.style.display = (!q || t.includes(q) || p.includes(q)) ? 'flex' : 'none';
+    });
+}
+function selectAll() {
+    document.querySelectorAll('.action-cb').forEach(el => {
+        if (el.style.display !== 'none') el.querySelector('input').checked = true;
+    });
+    updateSelection();
+}
+function deselectAll() {
+    document.querySelectorAll('.action-cb input').forEach(cb => cb.checked = false);
+    updateSelection();
+}
+
+// ---- Selection ----
+function updateSelection() {
+    selectedActions = [];
+    document.querySelectorAll('.action-cb input:checked').forEach(cb => selectedActions.push(cb.value));
+
+    document.getElementById('selCount').textContent = `${selectedActions.length} action(s) sélectionnée(s)`;
+    document.getElementById('exportBtn').disabled = selectedActions.length === 0;
+
+    if (selectedActions.length === 0) {
+        document.getElementById('emptyState').style.display = 'block';
+        document.getElementById('previewContainer').style.display = 'none';
+    } else {
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('previewContainer').style.display = 'block';
+        currentIdx = 0;
+        updateNav();
+        loadFactsheetData(selectedActions[0]);
+
+        document.getElementById('previewNav').style.display = selectedActions.length > 1 ? 'flex' : 'none';
+        document.getElementById('multiInfo').style.display = selectedActions.length > 1 ? 'block' : 'none';
+        if (selectedActions.length > 1) document.getElementById('multiCount').textContent = selectedActions.length;
+    }
+}
+
+function updateNav() {
+    const sel = document.getElementById('previewSelector');
+    sel.innerHTML = '';
+    selectedActions.forEach((t, i) => {
+        const o = document.createElement('option');
+        o.value = i; o.textContent = t;
+        if (i === currentIdx) o.selected = true;
+        sel.appendChild(o);
+    });
+    document.getElementById('curIdx').textContent = currentIdx + 1;
+    document.getElementById('totalCount').textContent = selectedActions.length;
+    document.getElementById('prevBtn').disabled = currentIdx === 0;
+    document.getElementById('nextBtn').disabled = currentIdx === selectedActions.length - 1;
+}
+function navigatePreview(dir) {
+    const n = currentIdx + dir;
+    if (n >= 0 && n < selectedActions.length) loadPreviewByIndex(n);
+}
+function loadPreviewByIndex(idx) {
+    idx = parseInt(idx);
+    if (currentData && currentData.metadata) saveCurrentComments(currentData.metadata.ticker);
+    currentIdx = idx;
+    updateNav();
+    loadFactsheetData(selectedActions[idx]);
+}
+
+// ---- Comments cache ----
+function saveCurrentComments(ticker) {
+    if (!ticker) return;
+    commentsCache[ticker] = {
+        analysis: document.getElementById('analysisComment').value,
+        recommendation: document.getElementById('recoComment').value,
+    };
+}
+function loadCommentsFor(ticker) {
+    const c = commentsCache[ticker];
+    document.getElementById('analysisComment').value = c ? (c.analysis || '') : '';
+    document.getElementById('recoComment').value = c ? (c.recommendation || '') : '';
+}
+function onCommentChange() {
+    if (currentData && currentData.metadata) saveCurrentComments(currentData.metadata.ticker);
+}
+
+// ---- Load data ----
+async function loadFactsheetData(ticker) {
+    try {
+        const r = await fetch(`{% url 'dashboard:api_factsheet_data' %}?ticker=${encodeURIComponent(ticker)}`);
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || `HTTP ${r.status}`);
+        }
+        const data = await r.json();
+        if (data.error) { alert(data.error); return; }
+        currentData = data;
+        allCache[ticker] = data;
+        updatePreview(data);
+        loadCommentsFor(ticker);
+    } catch (err) {
+        console.error(err);
+        alert('Erreur: ' + err.message);
+    }
+}
+
+// ---- Update preview ----
+function updatePreview(data) {
+    const m = data.metadata;
+    const ticker = m.ticker;
+
+    document.getElementById('fsTitle').textContent = `${ticker} — ${m.nom || ticker}`;
+    const parts = [];
+    if (m.pays) parts.push(m.pays.toUpperCase());
+    parts.push(`Export: ${new Date().toLocaleDateString('fr-FR')}`);
+    document.getElementById('fsSubtitle').textContent = parts.join(' | ');
+
+    document.getElementById('fsDescText').textContent = m.description || 'Description non disponible.';
+    document.getElementById('fsPrice').textContent = data.current_price ? formatNumber(data.current_price, 0) + ' FCFA' : '-';
+    document.getElementById('fsDate').textContent = data.last_date || '-';
+    document.getElementById('fsRsi').textContent = data.rsi ? data.rsi.toFixed(1) : '-';
+    document.getElementById('fsMacd').textContent = data.macd ? data.macd.toFixed(2) : '-';
+    document.getElementById('fsMacdSignal').textContent = data.macd_signal ? data.macd_signal.toFixed(2) : '-';
+    document.getElementById('fsSma').textContent = (data.sma_20 ? formatNumber(data.sma_20, 0) : '-') + ' / ' + (data.sma_50 ? formatNumber(data.sma_50, 0) : '-');
+    document.getElementById('fsVol').textContent = data.volatilite_ann ? data.volatilite_ann.toFixed(1) + '%' : '-';
+    document.getElementById('fsPer').textContent = m.per ? m.per.toFixed(1) : '-';
+    document.getElementById('fsDiv').textContent = m.dividende ? formatNumber(m.dividende, 0) + ' FCFA' : '-';
+
+    // Column headers
+    document.getElementById('colCalAct').textContent = ticker;
+    document.getElementById('colRollAct').textContent = ticker;
+
+    // Calendar perf
+    const ca = data.calendar_perf_action || {};
+    const ci = data.calendar_perf_index || {};
+    perfCell('calWtdA', ca.wtd); perfCell('calWtdI', ci.wtd);
+    perfCell('calMtdA', ca.mtd); perfCell('calMtdI', ci.mtd);
+    perfCell('calQtdA', ca.qtd); perfCell('calQtdI', ci.qtd);
+    perfCell('calStdA', ca.std); perfCell('calStdI', ci.std);
+    perfCell('calYtdA', ca.ytd); perfCell('calYtdI', ci.ytd);
+
+    // Rolling perf
+    const ra = data.rolling_perf_action || {};
+    const ri = data.rolling_perf_index || {};
+    perfCell('roll1wA', ra.perf_1w); perfCell('roll1wI', ri.perf_1w);
+    perfCell('roll1mA', ra.perf_1m); perfCell('roll1mI', ri.perf_1m);
+    perfCell('roll3mA', ra.perf_3m); perfCell('roll3mI', ri.perf_3m);
+    perfCell('roll6mA', ra.perf_6m); perfCell('roll6mI', ri.perf_6m);
+    perfCell('roll1yA', ra.perf_1y); perfCell('roll1yI', ri.perf_1y);
+    perfCell('roll3yA', ra.perf_3y); perfCell('roll3yI', ri.perf_3y);
+
+    // Beta
+    const b = data.beta_by_period || {};
+    ['3m','6m','1y','3y','all'].forEach(p => {
+        const d = b[p];
+        const suffix = p === 'all' ? 'All' : p.replace('m','m').replace('y','y');
+        const capP = p.charAt(0).toUpperCase() + p.slice(1);
+        const betaId = 'beta' + (p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1));
+        const corrId = 'corr' + (p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1));
+        const rsqId = 'rsq' + (p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1));
+        // IDs: beta3m, corr3m, rsq3m, etc.
+        document.getElementById(`beta${capSuffix(p)}`).textContent = d?.beta ?? '-';
+        document.getElementById(`corr${capSuffix(p)}`).textContent = d?.correlation ?? '-';
+        document.getElementById(`rsq${capSuffix(p)}`).textContent = d?.r_squared ?? '-';
+    });
+
+    updateTechInterp(data);
+    updateChart(data.chart_data, ticker);
+}
+
+function capSuffix(p) {
+    if (p === '3m') return '3m';
+    if (p === '6m') return '6m';
+    if (p === '1y') return '1y';
+    if (p === '3y') return '3y';
+    if (p === 'all') return 'All';
+    return p;
+}
+
+function perfCell(id, val) {
+    const el = document.getElementById(id);
+    if (val === null || val === undefined) {
+        el.textContent = '-'; el.className = '';
+    } else {
+        el.textContent = (val >= 0 ? '+' : '') + val.toFixed(2) + '%';
+        el.className = val >= 0 ? 'positive' : 'negative';
+    }
+}
+
+function updateTechInterp(data) {
+    // RSI
+    const rsi = data.rsi;
+    let rsiHtml = '-';
+    if (rsi != null) {
+        if (rsi >= 70) rsiHtml = `<span class="text-danger">${rsi.toFixed(1)} — Suracheté</span>`;
+        else if (rsi <= 30) rsiHtml = `<span class="text-success">${rsi.toFixed(1)} — Survendu</span>`;
+        else if (rsi >= 55) rsiHtml = `<span class="text-warning">${rsi.toFixed(1)} — Momentum haussier</span>`;
+        else if (rsi <= 45) rsiHtml = `<span class="text-muted">${rsi.toFixed(1)} — Momentum baissier</span>`;
+        else rsiHtml = `${rsi.toFixed(1)} — Neutre`;
+    }
+    document.getElementById('rsiInterp').innerHTML = rsiHtml;
+
+    // MACD
+    const macd = data.macd, sig = data.macd_signal;
+    let macdHtml = '-';
+    if (macd != null && sig != null) {
+        if (macd > sig && macd > 0) macdHtml = `<span class="text-success">Haussier fort (${macd.toFixed(2)} > ${sig.toFixed(2)})</span>`;
+        else if (macd > sig) macdHtml = `<span style="color:#90EE90">Croisement haussier (${macd.toFixed(2)})</span>`;
+        else if (macd < sig && macd < 0) macdHtml = `<span class="text-danger">Baissier fort (${macd.toFixed(2)} < ${sig.toFixed(2)})</span>`;
+        else if (macd < sig) macdHtml = `<span class="text-warning">Croisement baissier (${macd.toFixed(2)})</span>`;
+        else macdHtml = `Neutre (${macd.toFixed(2)})`;
+    }
+    document.getElementById('macdInterp').innerHTML = macdHtml;
+
+    // Trend
+    const ra = data.rolling_perf_action || {};
+    const ca = data.calendar_perf_action || {};
+    const p1m = ra.perf_1m, p3m = ra.perf_3m, ytd = ca.ytd;
+    let trendHtml = '-';
+    if (p1m != null && p3m != null) {
+        if (p1m > 0 && p3m > 0 && (ytd == null || ytd > 0)) trendHtml = `<span class="text-success">Tendance haussière confirmée</span>`;
+        else if (p1m < 0 && p3m < 0 && (ytd == null || ytd < 0)) trendHtml = `<span class="text-danger">Tendance baissière confirmée</span>`;
+        else if (p1m > 0 && p3m < 0) trendHtml = `<span class="text-warning">Rebond CT sur tendance baissière</span>`;
+        else if (p1m < 0 && p3m > 0) trendHtml = `<span class="text-muted">Correction CT sur tendance haussière</span>`;
+        else if (p1m > 0) trendHtml = `<span style="color:#90EE90">Momentum positif CT</span>`;
+        else trendHtml = `<span class="text-muted">Consolidation</span>`;
+    }
+    document.getElementById('trendInterp').innerHTML = trendHtml;
+}
+
+function updateChart(chartData, ticker) {
+    const ctx = document.getElementById('compChart');
+    if (compChart) compChart.destroy();
+    if (!chartData || !chartData.dates || chartData.dates.length === 0) return;
+
+    compChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chartData.dates,
+            datasets: [
+                {
+                    label: ticker,
+                    data: chartData.action,
+                    borderColor: '#4f8cff',
+                    backgroundColor: 'rgba(79,140,255,0.08)',
+                    fill: true, tension: 0.2, pointRadius: 0, borderWidth: 2,
+                },
+                ...(chartData.index && chartData.index.length ? [{
+                    label: 'BRVM Composite',
+                    data: chartData.index,
+                    borderColor: '#e63757',
+                    backgroundColor: 'rgba(230,55,87,0.06)',
+                    fill: true, tension: 0.2, pointRadius: 0, borderWidth: 1.5,
+                }] : [])
+            ]
+        },
+        options: {
+            ...CHART_DEFAULTS,
+            plugins: {
+                ...CHART_DEFAULTS.plugins,
+                title: { display: true, text: 'Performance comparée (Base 100, 1 an)', color: '#8b8fa3', font: { size: 12 } },
+            },
+            interaction: { intersect: false, mode: 'index' },
+        }
+    });
+}
+
+// ---- API Key ----
+async function saveApiKey() {
+    const val = document.getElementById('apiKeyInput').value.trim();
+    if (!val || val === '••••••••••') return;
+
+    try {
+        await fetch('{% url "dashboard:api_save_config" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cle: 'ANTHROPIC_API_KEY', valeur: val, description: 'Clé API Claude pour génération de commentaires' })
+        });
+        document.getElementById('apiStatus').innerHTML = '<span class="api-dot ok"></span> Clé sauvegardée';
+        document.getElementById('apiKeyInput').value = '••••••••••';
+    } catch (e) {
+        alert('Erreur: ' + e.message);
+    }
+}
+
+// ---- Generate Comments ----
+async function generateComment(type) {
+    if (!currentData) return;
+
+    let btn, originalHtml;
+    if (type === 'analysis') {
+        btn = document.getElementById('genAnalysisBtn');
+    } else if (type === 'recommendation') {
+        btn = document.getElementById('genRecoBtn');
+    } else {
+        btn = document.getElementById('genAllBtn');
+    }
+    originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Génération...';
+
+    try {
+        const apiKey = document.getElementById('apiKeyInput').value;
+        const r = await fetch('{% url "dashboard:api_factsheet_generate_comments" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                api_key: (apiKey && apiKey !== '••••••••••') ? apiKey : '',
+                factsheet_data: currentData,
+                comment_type: type,
+            })
+        });
+
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || `HTTP ${r.status}`);
+        }
+
+        const result = await r.json();
+        const ticker = currentData.metadata.ticker;
+
+        if (result.analysis_comment) {
+            document.getElementById('analysisComment').value = result.analysis_comment;
+            if (!commentsCache[ticker]) commentsCache[ticker] = {};
+            commentsCache[ticker].analysis = result.analysis_comment;
+        }
+        if (result.recommendation_comment) {
+            document.getElementById('recoComment').value = result.recommendation_comment;
+            if (!commentsCache[ticker]) commentsCache[ticker] = {};
+            commentsCache[ticker].recommendation = result.recommendation_comment;
+        }
+        if (result.disclaimer) {
+            document.getElementById('disclaimerText').value = result.disclaimer;
+        }
+        if (result.analysis_error) alert('Erreur analyse: ' + result.analysis_error);
+        if (result.recommendation_error) alert('Erreur recommandation: ' + result.recommendation_error);
+
+    } catch (err) {
+        console.error(err);
+        alert('Erreur: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+// ---- Save comment ----
+async function saveComment() {
+    if (!currentData || !currentData.metadata) { alert('Chargez une action d\'abord.'); return; }
+
+    const analysis = document.getElementById('analysisComment').value.trim();
+    const reco = document.getElementById('recoComment').value.trim();
+    if (!analysis && !reco) { alert('Aucun commentaire à sauvegarder.'); return; }
+
+    try {
+        const r = await fetch('{% url "dashboard:api_save_comment" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ticker: currentData.metadata.ticker,
+                analysis_comment: analysis,
+                recommendation_comment: reco,
+                disclaimer: document.getElementById('disclaimerText').value,
+                performance_data: {
+                    calendar_perf_action: currentData.calendar_perf_action,
+                    rolling_perf_action: currentData.rolling_perf_action,
+                    beta_by_period: currentData.beta_by_period,
+                    current_price: currentData.current_price,
+                }
+            })
+        });
+        const result = await r.json();
+        if (result.success) alert(`Commentaires sauvegardés pour ${currentData.metadata.ticker}`);
+        else alert('Erreur: ' + (result.error || 'inconnue'));
+    } catch (err) {
+        alert('Erreur: ' + err.message);
+    }
+}
+
+// ---- Export PDF ----
+async function exportFactsheets() {
+    if (selectedActions.length === 0) return;
+
+    const btn = document.getElementById('exportBtn');
+    const txt = document.getElementById('exportBtnText');
+    btn.disabled = true;
+    txt.innerHTML = '<span class="spinner-sm"></span> Génération PDF...';
+
+    try {
+        if (currentData && currentData.metadata) saveCurrentComments(currentData.metadata.ticker);
+        const disclaimer = document.getElementById('disclaimerText').value;
+        const factsheets = [];
+
+        for (const ticker of selectedActions) {
+            let data = allCache[ticker];
+            if (!data) {
+                const r = await fetch(`{% url 'dashboard:api_factsheet_data' %}?ticker=${encodeURIComponent(ticker)}`);
+                data = await r.json();
+                if (data.error) continue;
+                allCache[ticker] = data;
+            }
+            const c = commentsCache[ticker] || {};
+            factsheets.push({
+                ...data,
+                metadata: data.metadata,
+                analysis_comment: c.analysis || '',
+                recommendation_comment: c.recommendation || '',
+                disclaimer: disclaimer,
+            });
+        }
+
+        const r = await fetch('{% url "dashboard:api_factsheet_generate_pdf" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ factsheets })
+        });
+
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || 'Erreur serveur');
+        }
+
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const cd = r.headers.get('Content-Disposition');
+        a.download = cd ? (cd.match(/filename="(.+)"/)?.[1] || 'factsheet.pdf') : 'factsheet.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+    } catch (err) {
+        console.error(err);
+        alert('Erreur: ' + err.message);
+    } finally {
+        btn.disabled = selectedActions.length === 0;
+        txt.innerHTML = '<i class="bi bi-download me-1"></i>Exporter en PDF';
+    }
+}
+
+// ---- Comment history management ----
+async function toggleFavorite(id, btn) {
+    try {
+        const r = await fetch(`/api/comment/${id}/toggle-favorite/`, { method: 'POST' });
+        const data = await r.json();
+        if (data.success) {
+            const icon = btn.querySelector('i');
+            icon.className = data.favori ? 'bi bi-star-fill text-warning' : 'bi bi-star';
+        }
+    } catch (e) { console.error(e); }
+}
+async function deleteComment(id) {
+    if (!confirm('Supprimer ce commentaire ?')) return;
+    try {
+        const r = await fetch(`/api/comment/${id}/delete/`, { method: 'POST' });
+        const data = await r.json();
+        if (data.success) {
+            const el = document.getElementById(`rc-${id}`);
+            if (el) el.remove();
+        }
+    } catch (e) { console.error(e); }
+}
+
+// ============================================================
+// Onglets + Reporting Marché
+// ============================================================
+let marketReportData = null;
+let mrChart = null;
+
+function switchTab(tabId) {
+    document.querySelectorAll('.fs-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+    document.querySelectorAll('.fs-tab-content').forEach(c => c.classList.toggle('active', c.id === tabId));
+    if (tabId === 'tab-market' && !marketReportData) {
+        loadMarketReport();
+    }
+}
+
+async function loadMarketReport() {
+    try {
+        const r = await fetch('{% url "dashboard:api_market_report_data" %}');
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || `HTTP ${r.status}`);
+        }
+        marketReportData = await r.json();
+        renderMarketReport(marketReportData);
+    } catch (err) {
+        console.error(err);
+        document.getElementById('mrLoading').innerHTML =
+            `<i class="bi bi-exclamation-triangle text-danger"></i><p>Erreur : ${err.message}</p>`;
+    }
+}
+
+function renderMarketReport(d) {
+    document.getElementById('mrLoading').style.display = 'none';
+    document.getElementById('mrContent').style.display = 'block';
+
+    document.getElementById('mrSubtitle').textContent =
+        `Séance du ${d.last_date} | Export : ${new Date().toLocaleDateString('fr-FR')} | CGF Bourse`;
+
+    // Indices
+    const idxBody = document.getElementById('mrIndicesBody');
+    idxBody.innerHTML = '';
+    (d.indices || []).forEach(i => {
+        const tr = document.createElement('tr');
+        const varCls = i.variation_pct == null ? '' : (i.variation_pct >= 0 ? 'positive' : 'negative');
+        const varTxt = i.variation_pct == null ? '-'
+            : (i.variation_pct >= 0 ? '+' : '') + i.variation_pct.toFixed(2) + '%';
+        tr.innerHTML = `<td><strong>${i.ticker}</strong></td>
+                        <td>${formatNumber(i.cloture, 2)}</td>
+                        <td class="${varCls}">${varTxt}</td>`;
+        idxBody.appendChild(tr);
+    });
+
+    // Stats
+    const s = d.stats || {};
+    const fmtFcfa = v => v ? formatNumber(v, 0) + ' FCFA' : '-';
+    document.getElementById('mrStatsBody').innerHTML = `
+        <div class="mr-stat-line"><span class="lbl">Sociétés cotées</span><span class="val">${s.nb_societes ?? '-'}</span></div>
+        <div class="mr-stat-line"><span class="lbl">Capi. boursière</span><span class="val">${fmtFcfa(s.capi_totale)}</span></div>
+        <div class="mr-stat-line"><span class="lbl">Volume séance</span><span class="val">${fmtFcfa(s.vol_total_fcfa)}</span></div>
+        <div class="mr-stat-line"><span class="lbl">Titres échangés</span><span class="val">${s.nb_titres_echanges ? formatNumber(s.nb_titres_echanges, 0) : '-'}</span></div>
+        <div class="mr-stat-line"><span class="lbl">Concentration Top 5 vol.</span><span class="val">${s.part_top5_vol_pct ?? '-'}%</span></div>
+    `;
+
+    // Chart
+    drawMarketChart(d.brvmc_chart);
+
+    // Perfs calendaires / glissantes
+    renderPerfRows('mrCalBody', d.calendar_perf_brvmc, [
+        ['wtd', 'WTD'], ['mtd', 'MTD'], ['qtd', 'QTD'], ['std', 'STD'], ['ytd', 'YTD']
+    ]);
+    renderPerfRows('mrRollBody', d.rolling_perf_brvmc, [
+        ['perf_1w', '1 semaine'], ['perf_1m', '1 mois'], ['perf_3m', '3 mois'],
+        ['perf_6m', '6 mois'], ['perf_1y', '1 an'], ['perf_3y', '3 ans']
+    ]);
+
+    // Top hausses / baisses
+    renderMovers('mrHaussesBody', d.top_hausses);
+    renderMovers('mrBaissesBody', d.top_baisses);
+
+    // Top volumes
+    const volBody = document.getElementById('mrVolBody');
+    volBody.innerHTML = '';
+    const totalVol = s.vol_total_fcfa || 0;
+    (d.top_volumes || []).forEach(m => {
+        const part = totalVol ? (m.volume_fcfa / totalVol * 100).toFixed(1) : '-';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td><strong>${m.ticker}</strong></td>
+                        <td>${formatNumber(m.cloture, 0)}</td>
+                        <td>${formatNumber(m.volume_fcfa, 0)}</td>
+                        <td>${part}%</td>`;
+        volBody.appendChild(tr);
+    });
+}
+
+function renderPerfRows(bodyId, perfData, labels) {
+    const body = document.getElementById(bodyId);
+    body.innerHTML = '';
+    labels.forEach(([code, lbl]) => {
+        const v = perfData && perfData[code];
+        const cls = v == null ? '' : (v >= 0 ? 'positive' : 'negative');
+        const txt = v == null ? '-' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${lbl}</td><td class="${cls}">${txt}</td>`;
+        body.appendChild(tr);
+    });
+}
+
+function renderMovers(bodyId, movers) {
+    const body = document.getElementById(bodyId);
+    body.innerHTML = '';
+    (movers || []).forEach(m => {
+        const cls = m.variation_pct >= 0 ? 'positive' : 'negative';
+        const txt = (m.variation_pct >= 0 ? '+' : '') + m.variation_pct.toFixed(2) + '%';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td><strong>${m.ticker}</strong></td>
+                        <td>${formatNumber(m.cloture, 0)}</td>
+                        <td class="${cls}">${txt}</td>`;
+        body.appendChild(tr);
+    });
+    if (!movers || movers.length === 0) {
+        body.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-secondary);">Aucune donnée</td></tr>';
+    }
+}
+
+function drawMarketChart(chart) {
+    const ctx = document.getElementById('mrChart');
+    if (mrChart) mrChart.destroy();
+    if (!chart || !chart.dates || chart.dates.length === 0) return;
+    mrChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chart.dates,
+            datasets: [{
+                label: 'BRVM Composite',
+                data: chart.values,
+                borderColor: '#4f8cff',
+                backgroundColor: 'rgba(79,140,255,0.08)',
+                fill: true, tension: 0.2, pointRadius: 0, borderWidth: 2,
+            }]
+        },
+        options: {
+            ...CHART_DEFAULTS,
+            plugins: {
+                ...CHART_DEFAULTS.plugins,
+                title: { display: true, text: 'BRVM Composite — performance 1 an (base 100)',
+                         color: '#8b8fa3', font: { size: 12 } },
+            },
+            interaction: { intersect: false, mode: 'index' },
+        }
+    });
+}
+
+async function generateMarketComment() {
+    if (!marketReportData) {
+        alert('Données marché non chargées.');
+        return;
+    }
+    const btn = document.getElementById('genMarketBtn');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Génération...';
+    try {
+        const apiKey = document.getElementById('apiKeyInput').value;
+        const r = await fetch('{% url "dashboard:api_market_report_comment" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                api_key: (apiKey && apiKey !== '••••••••••') ? apiKey : '',
+                report_data: marketReportData,
+            }),
+        });
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || `HTTP ${r.status}`);
+        }
+        const res = await r.json();
+        if (res.market_comment) document.getElementById('mrComment').value = res.market_comment;
+        if (res.disclaimer) document.getElementById('mrDisclaimer').value = res.disclaimer;
+    } catch (err) {
+        alert('Erreur : ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+    }
+}
+
+async function exportMarketReport() {
+    const btn = document.getElementById('exportMrBtn');
+    const txt = document.getElementById('exportMrBtnText');
+    btn.disabled = true;
+    txt.innerHTML = '<span class="spinner-sm"></span> Génération PDF...';
+    try {
+        if (!marketReportData) await loadMarketReport();
+        const r = await fetch('{% url "dashboard:api_market_report_pdf" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                report_data: marketReportData,
+                market_comment: document.getElementById('mrComment').value,
+                disclaimer: document.getElementById('mrDisclaimer').value,
+            }),
+        });
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.error || 'Erreur serveur');
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const cd = r.headers.get('Content-Disposition');
+        a.download = cd ? (cd.match(/filename="(.+)"/)?.[1] || 'reporting_marche.pdf') : 'reporting_marche.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        alert('Erreur : ' + err.message);
+    } finally {
+        btn.disabled = false;
+        txt.innerHTML = '<i class="bi bi-download me-1"></i>Exporter en PDF';
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}Risque & Volatilité - LOOK UP BRVM{% endblock %}
+{% block page_title %}
+<i class="bi bi-shield-exclamation me-2"></i>Risque & Volatilité
+{% endblock %}
+
+{% block content %}
+<!-- Sélection tickers pour la matrice -->
+<div class="card mb-4">
+    <div class="card-header"><i class="bi bi-grid-3x3 me-2"></i>Matrice de corrélation</div>
+    <div class="card-body">
+        <form method="get" class="mb-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-8">
+                    <label class="form-label text-muted small">Sélectionner les actions (maintenir Ctrl pour multi-sélection)</label>
+                    <select name="tickers" multiple class="form-select" size="4">
+                        {% for action in actions %}
+                        <option value="{{ action.ticker }}" {% if action.ticker in selected_tickers %}selected{% endif %}>{{ action.ticker }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Calculer</button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Heatmap de corrélation -->
+        {% if corr_tickers %}
+        <div class="table-responsive">
+            <table class="table table-sm text-center mb-0" style="font-size: 0.75rem;">
+                <thead>
+                    <tr>
+                        <th></th>
+                        {% for t in corr_tickers %}
+                        <th style="writing-mode: vertical-lr; transform: rotate(180deg); height: 80px;">{{ t }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody id="corrMatrix">
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tableau des métriques de risque -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-speedometer me-2"></i>Métriques de risque</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportTableToCSV('riskTable', 'risque_brvm.csv')">
+            <i class="bi bi-download me-1"></i>Export CSV
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table sortable mb-0" id="riskTable">
+                <thead>
+                    <tr>
+                        <th data-sort>Ticker</th>
+                        <th data-sort class="text-end">Volatilité ann.</th>
+                        <th data-sort class="text-end">VaR 95%</th>
+                        <th data-sort class="text-end">VaR 99%</th>
+                        <th data-sort class="text-end">Sharpe</th>
+                        <th data-sort class="text-end">Max Drawdown</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in risk_data %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'dashboard:analyse_actions' %}?ticker={{ row.ticker }}" class="text-decoration-none text-primary fw-bold">
+                                {{ row.ticker }}
+                            </a>
+                        </td>
+                        <td class="text-end">{{ row.volatilite|format_number:2 }}%</td>
+                        <td class="text-end text-danger">{{ row.var_95|format_number:2 }}%</td>
+                        <td class="text-end text-danger">{{ row.var_99|format_number:2 }}%</td>
+                        <td class="text-end">
+                            {% if row.sharpe is not None %}
+                            <span class="{% if row.sharpe > 0 %}text-success{% else %}text-danger{% endif %}">{{ row.sharpe }}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-end text-warning">{{ row.max_drawdown|format_number:2 }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Construire la heatmap de corrélation
+    const matrix = {{ correlation_matrix|safe }};
+    const tickers = {{ corr_tickers_json|safe }};
+
+    if (matrix.length > 0 && tickers.length > 0) {
+        const tbody = document.getElementById('corrMatrix');
+        if (!tbody) return;
+
+        for (let i = 0; i < tickers.length; i++) {
+            let row = '<tr><th class="text-start">' + tickers[i] + '</th>';
+            for (let j = 0; j < tickers.length; j++) {
+                const val = matrix[i][j];
+                let color = 'rgba(139, 143, 163, 0.1)';
+                if (val !== null) {
+                    if (val > 0) {
+                        const intensity = Math.min(val, 1);
+                        color = `rgba(0, 217, 126, ${intensity * 0.6})`;
+                    } else {
+                        const intensity = Math.min(Math.abs(val), 1);
+                        color = `rgba(230, 55, 87, ${intensity * 0.6})`;
+                    }
+                }
+                const display = val !== null ? val.toFixed(2) : '-';
+                row += `<td><div class="heatmap-cell" style="background: ${color}">${display}</div></td>`;
+            }
+            row += '</tr>';
+            tbody.innerHTML += row;
+        }
+    }
+});
+</script>
+{% endblock %}

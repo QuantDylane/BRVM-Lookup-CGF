@@ -1,0 +1,161 @@
+{
+  "generated_at": "2026-04-07T18:09:13.813717",
+  "top_flop": {
+    "top5": [
+      {
+        "ticker": "CABC.ci",
+        "cours": 4240.0,
+        "variation_1j": 7.48,
+        "date": "07/04/2026"
+      },
+      {
+        "ticker": "STAC.ci",
+        "cours": 3625.0,
+        "variation_1j": 7.41,
+        "date": "07/04/2026"
+      },
+      {
+        "ticker": "BOAN.ne",
+        "cours": 2845.0,
+        "variation_1j": 6.95,
+        "date": "07/04/2026"
+      },
+      {
+        "ticker": "PRSC.ci",
+        "cours": 5050.0,
+        "variation_1j": 6.09,
+        "date": "07/04/2026"
+      },
+      {
+        "ticker": "UNXC.ci",
+        "cours": 1980.0,
+        "variation_1j": 2.86,
+        "date": "07/04/2026"
+      }
+    ],
+    "flop5": [
+      {
+        "ticker": "UNLC.ci",
+        "cours": 63830.0,
+        "variation_1j": -7.5,
+        "date": "07/04/2026"
+      },
+      {
+        "ticker": "SAFC.ci",
+        "cours": 7100.0,
+        "variation_1j": -4.63,
+        "date": "07/04/2026"
+      },
+      {
+        "ticker": "SCRC.ci",
+        "cours": 1875.0,
+        "variation_1j": -3.6,
+        "date": "07/04/2026"
+      },
+      {
+        "ticker": "NEIC.ci",
+        "cours": 1350.0,
+        "variation_1j": -3.57,
+        "date": "07/04/2026"
+      },
+      {
+        "ticker": "ABJC.ci",
+        "cours": 3500.0,
+        "variation_1j": -2.78,
+        "date": "07/04/2026"
+      }
+    ]
+  },
+  "alertes_rsi": [
+    {
+      "ticker": "SGBC.ci",
+      "rsi": 0.3,
+      "signal": "survente"
+    },
+    {
+      "ticker": "PALC.ci",
+      "rsi": 20.4,
+      "signal": "survente"
+    },
+    {
+      "ticker": "SMBC.ci",
+      "rsi": 22.1,
+      "signal": "survente"
+    },
+    {
+      "ticker": "SPHC.ci",
+      "rsi": 24.8,
+      "signal": "survente"
+    },
+    {
+      "ticker": "SDCC.ci",
+      "rsi": 25.3,
+      "signal": "survente"
+    },
+    {
+      "ticker": "NTLC.ci",
+      "rsi": 25.7,
+      "signal": "survente"
+    },
+    {
+      "ticker": "SOGC.ci",
+      "rsi": 26.1,
+      "signal": "survente"
+    },
+    {
+      "ticker": "CFAC.ci",
+      "rsi": 27.6,
+      "signal": "survente"
+    },
+    {
+      "ticker": "ECOC.ci",
+      "rsi": 27.8,
+      "signal": "survente"
+    },
+    {
+      "ticker": "ETIT.tg",
+      "rsi": 100.0,
+      "signal": "surachat"
+    },
+    {
+      "ticker": "CBIBF.bf",
+      "rsi": 96.8,
+      "signal": "surachat"
+    },
+    {
+      "ticker": "STAC.ci",
+      "rsi": 91.4,
+      "signal": "surachat"
+    },
+    {
+      "ticker": "CABC.ci",
+      "rsi": 88.7,
+      "signal": "surachat"
+    },
+    {
+      "ticker": "BOABF.bf",
+      "rsi": 84.5,
+      "signal": "surachat"
+    },
+    {
+      "ticker": "SCRC.ci",
+      "rsi": 77.1,
+      "signal": "surachat"
+    },
+    {
+      "ticker": "SIVC.ci",
+      "rsi": 72.8,
+      "signal": "surachat"
+    },
+    {
+      "ticker": "PRSC.ci",
+      "rsi": 72.0,
+      "signal": "surachat"
+    },
+    {
+      "ticker": "SICC.ci",
+      "rsi": 71.3,
+      "signal": "surachat"
+    }
+  ]
+}

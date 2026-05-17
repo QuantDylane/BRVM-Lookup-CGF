@@ -1,0 +1,16 @@
+1) Fichiers "base.py" et "hmm.py"
+Ces fichiers contiennent les codes et fonctions fondamentaux des modèles HMM et FSHMM. Ils doivent toujours se trouver dans le même dossier que les fichiers "Model HMM" et "Model FSHMM", afin que ces derniers puissent fonctionner correctement.
+
+2) Fichier Excel "Données Modele HMM-FSHMM"
+Ce fichier regroupe l’ensemble des données brutes collectées. Il contient également les indicateurs (facteurs) calculés directement par formules Excel.
+
+3) Fichier Excel "Données Modele HMM-FSHMM_copie"
+Ce fichier contient une copie en valeurs numériques des facteurs utilisés. Il sert d’input pour le notebook Constitution_portefeuilles, qui construit les portefeuilles long-short. Les rendements de ces portefeuilles constituent ensuite les inputs des modèles HMM et FSHMM.
+
+4) Fichiers PDF
+Les trois documents PDF contiennent :
+	-le protocole de mise en œuvre,
+	-et l’explication détaillée du fonctionnement des notebooks de constitution des 		portefeuilles long-short ainsi que des modèles HMM et FSHMM.
+
+5) Fichier Excel "rendements_portefeuilles_corr (1)"
+Il s’agit d’une sortie générée par le notebook "Constitution_portefeuilles". Ce fichier n’a pas d’utilité si les données sont mises à jour : il peut donc être ignoré.

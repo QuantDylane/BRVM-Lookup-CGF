@@ -1,0 +1,1008 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}LOOK UP BRVM - Accueil{% endblock %}
+{% block page_title %}
+<i class="bi bi-house-door me-2"></i>Tableau de Bord
+{% endblock %}
+
+{% block content %}
+<!-- Ticker-tape -->
+<div class="ticker-tape mb-3" id="tickerTape">
+    <div class="ticker-tape__track" id="tickerTapeTrack"></div>
+</div>
+
+<!-- Bandeau statut marché + largeur -->
+<div class="market-strip mb-4">
+    <div class="market-status" id="marketStatus">
+        <span class="market-status__dot"></span>
+        <span class="market-status__label">—</span>
+        <span class="market-status__sub text-muted small ms-2"></span>
+    </div>
+    <div class="market-breadth flex-grow-1" id="marketBreadth"
+         data-up="{{ breadth.up }}" data-down="{{ breadth.down }}" data-flat="{{ breadth.flat }}"
+         data-upr="{{ breadth_ratio.up }}" data-downr="{{ breadth_ratio.down }}" data-flatr="{{ breadth_ratio.flat }}">
+        <div class="market-breadth__header">
+            <span class="text-muted small">Largeur de marché</span>
+            <span class="market-breadth__counts">
+                <span class="text-success"><i class="bi bi-caret-up-fill"></i> {{ breadth.up }}</span>
+                <span class="text-muted mx-2"><i class="bi bi-dash"></i> {{ breadth.flat }}</span>
+                <span class="text-danger"><i class="bi bi-caret-down-fill"></i> {{ breadth.down }}</span>
+            </span>
+        </div>
+        <div class="market-breadth__bar">
+            <div class="market-breadth__seg market-breadth__seg--up" style="width: {{ breadth_ratio.up }}%"></div>
+            <div class="market-breadth__seg market-breadth__seg--flat" style="width: {{ breadth_ratio.flat }}%"></div>
+            <div class="market-breadth__seg market-breadth__seg--down" style="width: {{ breadth_ratio.down }}%"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Alerte de non-actualisation -->
+{% if alerte_maj %}
+<div class="alert-update">
+    <i class="bi bi-exclamation-triangle text-warning"></i>
+    <span>Les données n'ont pas été actualisées depuis plus de 2 jours. Dernière mise à jour : {{ derniere_maj }}</span>
+    <a href="{% url 'dashboard:actualisation' %}" class="btn btn-sm btn-outline-secondary ms-auto">Actualiser</a>
+</div>
+{% endif %}
+
+<!-- KPI Cards Row -->
+<div class="row g-3 mb-4">
+    <div class="col-lg-3 col-md-6">
+        <div class="kpi-card">
+            <div class="kpi-icon bg-primary-soft"><i class="bi bi-activity"></i></div>
+            <div class="kpi-value">{% if brvm_c %}{{ brvm_c|format_number:2 }}{% else %}-{% endif %}</div>
+            <div class="kpi-label">BRVM Composite</div>
+            {% if brvm_c_var is not None %}
+            <div class="kpi-change {{ brvm_c_var|color_variation }}">
+                <i class="bi {% if brvm_c_var > 0 %}bi-arrow-up-right{% elif brvm_c_var < 0 %}bi-arrow-down-right{% else %}bi-dash{% endif %}"></i>
+                {{ brvm_c_var|format_pct }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="kpi-card">
+            <div class="kpi-icon bg-success-soft"><i class="bi bi-bar-chart-line"></i></div>
+            <div class="kpi-value">{{ nb_actions }}</div>
+            <div class="kpi-label">Actions cotées</div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="kpi-card">
+            <div class="kpi-icon bg-warning-soft"><i class="bi bi-cash-stack"></i></div>
+            <div class="kpi-value">{{ volume_total|format_number:0 }}</div>
+            <div class="kpi-label">Volume du jour (FCFA)</div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="kpi-card">
+            <div class="kpi-icon bg-info-soft"><i class="bi bi-piggy-bank"></i></div>
+            <div class="kpi-value">{% if capi %}{{ capi|format_number:0 }}{% else %}-{% endif %}</div>
+            <div class="kpi-label">Capitalisation (Mds FCFA)</div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts & Recent News Row -->
+<div class="row g-3 mb-4">
+    <!-- Graphique BRVMC -->
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span><i class="bi bi-graph-up me-2"></i>Évolution BRVM Composite</span>
+                <div class="time-filter-group" id="chartTimeFilter">
+                    <button class="time-filter-btn" data-period="1m">1M</button>
+                    <button class="time-filter-btn" data-period="3m">3M</button>
+                    <button class="time-filter-btn" data-period="6m">6M</button>
+                    <button class="time-filter-btn active" data-period="1y">1A</button>
+                    <button class="time-filter-btn" data-period="ytd">YTD</button>
+                    <button class="time-filter-btn" data-period="3y">3A</button>
+                    <button class="time-filter-btn" data-period="5y">5A</button>
+                    <button class="time-filter-btn" data-period="all">Tout</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-container" style="height: 320px;">
+                    <canvas id="chartBRVMC"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Récentes actualités -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-newspaper me-2"></i>Récentes actualités</span>
+                <a href="{% url 'dashboard:analyse_nouvelles' %}" class="text-decoration-none small text-primary">
+                    Voir tout <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+            <div class="card-body p-0" style="max-height: 380px; overflow-y: auto;">
+                {% for n in recent_news %}
+                <a href="{% if n.url %}{{ n.url }}{% else %}{% url 'dashboard:analyse_nouvelles' %}{% endif %}"
+                   {% if n.url %}target="_blank" rel="noopener"{% endif %}
+                   class="news-card d-block text-decoration-none text-reset">
+                    <div class="d-flex gap-2 align-items-start">
+                        <span class="badge bg-primary-soft text-primary flex-shrink-0">
+                            <i class="bi bi-circle-fill" style="font-size:.45rem;"></i>
+                        </span>
+                        <div class="flex-grow-1 min-w-0">
+                            <div class="news-title">{{ n.titre|truncatechars:110 }}</div>
+                            <div class="news-meta d-flex flex-wrap gap-2 align-items-center">
+                                {% if n.date_publication %}
+                                <span><i class="bi bi-clock me-1"></i>{{ n.date_publication|date:"d M Y H:i" }}</span>
+                                {% endif %}
+                                {% if n.categorie %}
+                                <span class="badge-variation bg-secondary-soft">{{ n.categorie|truncatechars:24 }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </a>
+                {% empty %}
+                <div class="p-4 text-center text-muted">
+                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                    <div class="mt-2">Aucune actualité récente</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Top 5 / Flop 5 -->
+<div class="row g-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span><i class="bi bi-trophy me-2"></i>Top 5 & Flop 5 Performances</span>
+                <div class="time-filter-group" id="performersTimeFilter">
+                    <button class="time-filter-btn active" data-period="1d">1J</button>
+                    <button class="time-filter-btn" data-period="1w">1S</button>
+                    <button class="time-filter-btn" data-period="1m">1M</button>
+                    <button class="time-filter-btn" data-period="3m">3M</button>
+                    <button class="time-filter-btn" data-period="6m">6M</button>
+                    <button class="time-filter-btn" data-period="1y">1A</button>
+                    <button class="time-filter-btn" data-period="ytd">YTD</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row" id="performersContent">
+                    <div class="col-lg-6">
+                        <h6 class="text-success mb-3"><i class="bi bi-arrow-up-circle me-2"></i>Top 5</h6>
+                        <table class="table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Ticker</th>
+                                    <th>Tendance</th>
+                                    <th class="text-end">Cours</th>
+                                    <th class="text-end">Variation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="top5Body">
+                                {% for item in top5 %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'dashboard:analyse_actions' %}?ticker={{ item.ticker }}" class="text-decoration-none text-primary fw-bold">
+                                            {{ item.ticker }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <canvas class="sparkline-canvas" data-spark="{{ item.sparkline|join:',' }}" data-trend="up" width="80" height="28"></canvas>
+                                    </td>
+                                    <td class="text-end">{{ item.cloture|format_number:0 }}</td>
+                                    <td class="text-end">
+                                        <span class="badge-variation bg-success-soft">{{ item.variation|format_pct }}</span>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center text-muted">Aucune donnée</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-lg-6">
+                        <h6 class="text-danger mb-3"><i class="bi bi-arrow-down-circle me-2"></i>Flop 5</h6>
+                        <table class="table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Ticker</th>
+                                    <th>Tendance</th>
+                                    <th class="text-end">Cours</th>
+                                    <th class="text-end">Variation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="flop5Body">
+                                {% for item in flop5 %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'dashboard:analyse_actions' %}?ticker={{ item.ticker }}" class="text-decoration-none text-primary fw-bold">
+                                            {{ item.ticker }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <canvas class="sparkline-canvas" data-spark="{{ item.sparkline|join:',' }}" data-trend="down" width="80" height="28"></canvas>
+                                    </td>
+                                    <td class="text-end">{{ item.cloture|format_number:0 }}</td>
+                                    <td class="text-end">
+                                        <span class="badge-variation bg-danger-soft">{{ item.variation|format_pct }}</span>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center text-muted">Aucune donnée</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Heatmap sectorielle + Action sous surveillance -->
+<div class="row g-3 mt-1">
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span>
+                    <i class="bi bi-grid-3x3-gap me-2"></i>Carte du marché (Market Map)
+                    <span id="mmBreadcrumb" class="ms-2" style="display:none;">
+                        <span class="text-muted">›</span>
+                        <span id="mmBreadcrumbSector" class="fw-semibold"></span>
+                        <button type="button" id="mmBreadcrumbBack" class="btn btn-sm btn-outline-secondary ms-2 py-0 px-2" title="Revenir à la vue globale">
+                            <i class="bi bi-arrow-left"></i> Retour
+                        </button>
+                    </span>
+                </span>
+                <span class="text-muted small" id="heatmapPeriodLabel">Période : 1J</span>
+            </div>
+            <div class="card-body">
+                <div class="text-muted small mb-2">Taille = capitalisation · Couleur = variation · <span class="fst-italic">Cliquez sur un secteur pour zoomer</span></div>
+                <div id="heatmapContainer" class="heatmap"></div>
+                <div class="heatmap-legend mt-3">
+                    <span class="text-muted small me-2">Variation :</span>
+                    <span class="heatmap-legend__scale">
+                        <span style="background:#dc2626"></span>
+                        <span style="background:#ef4444"></span>
+                        <span style="background:#94a3b8"></span>
+                        <span style="background:#10b981"></span>
+                        <span style="background:#059669"></span>
+                    </span>
+                    <span class="text-muted small ms-2">−5% &nbsp; 0 &nbsp; +5%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card h-100 featured-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-stars me-2"></i>Action sous surveillance</span>
+                <span class="badge bg-warning-soft text-warning">Top volume</span>
+            </div>
+            {% if featured %}
+            <div class="card-body">
+                <div class="featured-head">
+                    <div>
+                        <a href="{% url 'dashboard:analyse_actions' %}?ticker={{ featured.ticker }}"
+                           class="featured-ticker text-decoration-none">{{ featured.ticker }}</a>
+                        <div class="text-muted small">{{ featured.nom|truncatechars:38 }}</div>
+                        <div class="text-muted small"><i class="bi bi-tag me-1"></i>{{ featured.secteur }}</div>
+                    </div>
+                    <div class="text-end">
+                        <div class="featured-price">{{ featured.cloture|format_number:0 }} <span class="text-muted small">FCFA</span></div>
+                        {% if featured.variation is not None %}
+                        <span class="badge-variation {% if featured.variation > 0 %}bg-success-soft{% elif featured.variation < 0 %}bg-danger-soft{% else %}bg-secondary-soft{% endif %}">
+                            <i class="bi {% if featured.variation > 0 %}bi-arrow-up-right{% elif featured.variation < 0 %}bi-arrow-down-right{% else %}bi-dash{% endif %}"></i>
+                            {{ featured.variation|format_pct }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="featured-spark">
+                    <canvas id="featuredSparkline"></canvas>
+                </div>
+
+                <div class="featured-stats">
+                    <div class="featured-stat">
+                        <span class="featured-stat__label">RSI 14</span>
+                        <span class="featured-stat__value
+                            {% if featured.rsi and featured.rsi >= 70 %}text-danger{% elif featured.rsi and featured.rsi <= 30 %}text-success{% else %}text-muted{% endif %}">
+                            {% if featured.rsi %}{{ featured.rsi }}{% else %}—{% endif %}
+                        </span>
+                    </div>
+                    <div class="featured-stat">
+                        <span class="featured-stat__label">YTD</span>
+                        <span class="featured-stat__value {% if featured.var_ytd is not None %}{{ featured.var_ytd|color_variation }}{% else %}text-muted{% endif %}">
+                            {% if featured.var_ytd is not None %}{{ featured.var_ytd|format_pct }}{% else %}—{% endif %}
+                        </span>
+                    </div>
+                    <div class="featured-stat">
+                        <span class="featured-stat__label">Volume</span>
+                        <span class="featured-stat__value">{{ featured.volume_fcfa|format_number:0 }}</span>
+                    </div>
+                    <div class="featured-stat">
+                        <span class="featured-stat__label">52S H/B</span>
+                        <span class="featured-stat__value small">
+                            {% if featured.high_52 %}{{ featured.high_52|format_number:0 }}{% else %}—{% endif %}
+                            <span class="text-muted">/</span>
+                            {% if featured.low_52 %}{{ featured.low_52|format_number:0 }}{% else %}—{% endif %}
+                        </span>
+                    </div>
+                </div>
+
+                <a href="{% url 'dashboard:analyse_actions' %}?ticker={{ featured.ticker }}"
+                   class="btn btn-sm btn-outline-primary w-100 mt-3">
+                    <i class="bi bi-graph-up me-1"></i>Analyser
+                </a>
+            </div>
+            {% else %}
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-search" style="font-size: 2rem;"></i>
+                <div class="mt-2">Aucune donnée disponible</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let brvmcChart = null;
+const allChartData = {{ chart_data|safe }};
+const tickerTapeData = {{ ticker_tape|safe }};
+const initialHeatmapData = {{ heatmap_data|safe }};
+const featuredSparkData = {{ featured_sparkline|safe }};
+
+const PERIOD_LABELS = {
+    '1d': '1J', '1w': '1S', '1m': '1M', '3m': '3M',
+    '6m': '6M', '1y': '1A', 'ytd': 'YTD'
+};
+
+// ---- Ticker-tape ----
+function initTickerTape() {
+    const track = document.getElementById('tickerTapeTrack');
+    if (!track || !tickerTapeData || tickerTapeData.length === 0) {
+        const tape = document.getElementById('tickerTape');
+        if (tape) tape.style.display = 'none';
+        return;
+    }
+    const buildItems = () => tickerTapeData.map(item => {
+        const v = item.variation;
+        const cls = v == null ? 'neutral' : (v > 0 ? 'up' : (v < 0 ? 'down' : 'neutral'));
+        const arrow = v == null ? '·' : (v > 0 ? '▲' : (v < 0 ? '▼' : '·'));
+        const variation = v == null ? '-' : ((v > 0 ? '+' : '') + v.toFixed(2) + '%');
+        const cours = item.cloture != null ? formatNumber(item.cloture) : '-';
+        return `<a href="/actions/?ticker=${item.ticker}" class="ticker-tape__item ${cls}">
+                    <span class="ticker-tape__sym">${item.ticker}</span>
+                    <span class="ticker-tape__price">${cours}</span>
+                    <span class="ticker-tape__var">${arrow} ${variation}</span>
+                </a>`;
+    }).join('');
+    // Duplicate content for seamless loop
+    track.innerHTML = buildItems() + buildItems();
+}
+
+// ---- Statut du marché BRVM (Mon-Fri 09:00-15:00 GMT, Africa/Abidjan ≈ UTC) ----
+function getBrvmNow() {
+    // Africa/Abidjan = UTC sans DST
+    const d = new Date();
+    return new Date(d.getTime() + d.getTimezoneOffset() * 60000);
+}
+function initMarketStatus() {
+    const update = () => {
+        const root = document.getElementById('marketStatus');
+        if (!root) return;
+        const now = getBrvmNow();
+        const day = now.getUTCDay(); // 0=dim, 6=sam
+        const h = now.getUTCHours();
+        const m = now.getUTCMinutes();
+        const minutes = h * 60 + m;
+        const open = 9 * 60;     // 09:00
+        const close = 15 * 60;   // 15:00
+        const isWeekday = day >= 1 && day <= 5;
+        const isOpen = isWeekday && minutes >= open && minutes < close;
+
+        root.classList.toggle('market-status--open', isOpen);
+        root.classList.toggle('market-status--closed', !isOpen);
+        const label = root.querySelector('.market-status__label');
+        const sub = root.querySelector('.market-status__sub');
+        if (isOpen) {
+            const remaining = close - minutes;
+            const rh = Math.floor(remaining / 60);
+            const rm = remaining % 60;
+            label.textContent = 'Marché ouvert';
+            sub.textContent = `Clôture dans ${rh}h${String(rm).padStart(2, '0')} (GMT)`;
+        } else {
+            label.textContent = 'Marché fermé';
+            // Calcul prochaine ouverture
+            let nextOpen = new Date(now);
+            nextOpen.setUTCHours(9, 0, 0, 0);
+            if (isWeekday && minutes >= close) {
+                nextOpen.setUTCDate(nextOpen.getUTCDate() + 1);
+            } else if (!isWeekday) {
+                // sam(6) -> +2 jours, dim(0) -> +1 jour
+                nextOpen.setUTCDate(nextOpen.getUTCDate() + (day === 6 ? 2 : 1));
+            } else if (minutes < open) {
+                // même jour 9h
+            }
+            // Si jour suivant est week-end, repousser à lundi
+            while (nextOpen.getUTCDay() === 0 || nextOpen.getUTCDay() === 6) {
+                nextOpen.setUTCDate(nextOpen.getUTCDate() + 1);
+            }
+            const diffMin = Math.max(0, Math.floor((nextOpen - now) / 60000));
+            const dh = Math.floor(diffMin / 60);
+            const dm = diffMin % 60;
+            sub.textContent = `Ouverture dans ${dh}h${String(dm).padStart(2, '0')} (GMT)`;
+        }
+    };
+    update();
+    setInterval(update, 60 * 1000);
+}
+
+// ---- Market Map (treemap squarifié) ----
+// Couleur = rendement | Taille = capitalisation boursière
+function variationToColor(v) {
+    if (v == null || isNaN(v)) return '#3b3f4a';
+    const max = 5;
+    const x = Math.max(-max, Math.min(max, v)) / max; // [-1, 1]
+    if (x > 0) {
+        // Vert : du sombre au vif
+        const a = 0.30 + 0.55 * x;
+        return `rgba(16, 185, 129, ${a.toFixed(2)})`;
+    } else if (x < 0) {
+        // Rouge
+        const a = 0.30 + 0.55 * (-x);
+        return `rgba(239, 68, 68, ${a.toFixed(2)})`;
+    }
+    return 'rgba(148, 163, 184, 0.30)';
+}
+
+// Algorithme "squarified treemap" (Bruls, Huijse & van Wijk).
+// Renvoie [{x,y,w,h,item}] dans un rectangle (x0,y0,W,H) pour items triés par valeur décroissante.
+function squarify(items, x0, y0, W, H) {
+    const out = [];
+    if (!items.length || W <= 0 || H <= 0) return out;
+    const total = items.reduce((s, it) => s + it._v, 0);
+    if (total <= 0) return out;
+    // Convertir les valeurs en surfaces dans le rect courant
+    const scale = (W * H) / total;
+    const queue = items.map(it => ({ ...it, _area: it._v * scale }));
+
+    let rx = x0, ry = y0, rw = W, rh = H;
+    let row = [];
+
+    const worst = (row, w) => {
+        // Pire rapport d'aspect d'une "row" pour une largeur donnée w
+        const s = row.reduce((a, b) => a + b._area, 0);
+        const rmax = Math.max(...row.map(r => r._area));
+        const rmin = Math.min(...row.map(r => r._area));
+        return Math.max((w * w * rmax) / (s * s), (s * s) / (w * w * rmin));
+    };
+
+    const layoutRow = (row, x, y, w, h, horizontal) => {
+        const s = row.reduce((a, b) => a + b._area, 0);
+        if (horizontal) {
+            // ligne horizontale : hauteur fixée
+            const rowH = s / w;
+            let cx = x;
+            for (const r of row) {
+                const cw = r._area / rowH;
+                out.push({ x: cx, y: y, w: cw, h: rowH, item: r });
+                cx += cw;
+            }
+            return rowH;
+        } else {
+            // ligne verticale : largeur fixée
+            const rowW = s / h;
+            let cy = y;
+            for (const r of row) {
+                const ch = r._area / rowW;
+                out.push({ x: x, y: cy, w: rowW, h: ch, item: r });
+                cy += ch;
+            }
+            return rowW;
+        }
+    };
+
+    let i = 0;
+    while (i < queue.length) {
+        const horizontal = rw >= rh;
+        const w = horizontal ? rw : rh;
+        const candidate = queue[i];
+        const newRow = row.concat(candidate);
+        if (row.length === 0 || worst(newRow, w) <= worst(row, w)) {
+            row = newRow;
+            i++;
+        } else {
+            const used = layoutRow(row, rx, ry, rw, rh, horizontal);
+            if (horizontal) { ry += used; rh -= used; }
+            else            { rx += used; rw -= used; }
+            row = [];
+        }
+    }
+    if (row.length) {
+        const horizontal = rw >= rh;
+        layoutRow(row, rx, ry, rw, rh, horizontal);
+    }
+    return out;
+}
+
+let _heatmapResizeBound = false;
+let _heatmapState = { items: [], period: '1d' };
+let _mmZoomedSector = null; // nom du secteur zoomé, ou null
+// Caches DOM keyed pour des transitions fluides entre rendus
+const _mmSectorNodes = new Map(); // sectorName -> { wrap, titleEl }
+const _mmTileNodes = new Map();   // ticker     -> <a>
+
+function setMmZoom(sectorName) {
+    _mmZoomedSector = sectorName || null;
+    const bc = document.getElementById('mmBreadcrumb');
+    const bcSec = document.getElementById('mmBreadcrumbSector');
+    if (bc && bcSec) {
+        if (_mmZoomedSector) {
+            bcSec.textContent = _mmZoomedSector;
+            bc.style.display = '';
+        } else {
+            bc.style.display = 'none';
+        }
+    }
+    renderHeatmap(_heatmapState.items, _heatmapState.period);
+}
+
+function renderHeatmap(items, period) {
+    _heatmapState = { items: items || [], period: period };
+    const container = document.getElementById('heatmapContainer');
+    if (!container) return;
+    const label = document.getElementById('heatmapPeriodLabel');
+    if (label) label.textContent = `Période : ${PERIOD_LABELS[period] || period}`;
+
+    // Filtrer items valides (cap > 0)
+    const valid = (items || []).filter(it => (it.cap || 0) > 0);
+    if (valid.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-inbox" style="font-size:2rem;"></i><div class="mt-2">Aucune donnée</div></div>';
+        _mmSectorNodes.clear();
+        _mmTileNodes.clear();
+        return;
+    }
+
+    // Regrouper par secteur, trier par capi globale décroissante
+    const groups = {};
+    valid.forEach(it => {
+        const sec = it.secteur || 'Non classé';
+        if (!groups[sec]) groups[sec] = { name: sec, items: [], cap: 0 };
+        groups[sec].items.push(it);
+        groups[sec].cap += (it.cap || 0);
+    });
+    const sectors = Object.values(groups).sort((a, b) => b.cap - a.cap);
+
+    // Mode zoom : ne conserver que le secteur sélectionné (s'il existe encore)
+    let displaySectors = sectors;
+    if (_mmZoomedSector) {
+        const zoomed = sectors.find(s => s.name === _mmZoomedSector);
+        if (zoomed) {
+            displaySectors = [zoomed];
+        } else {
+            // Le secteur sélectionné a disparu → sortir du zoom
+            _mmZoomedSector = null;
+            const bc = document.getElementById('mmBreadcrumb');
+            if (bc) bc.style.display = 'none';
+        }
+    }
+
+    // Dimensions réelles
+    const W = container.clientWidth || 800;
+    const H = 520;
+    container.style.position = 'relative';
+    container.style.height = H + 'px';
+
+    // Si premier rendu (ou message d'erreur affiché), purger
+    if (!container.firstElementChild || !container.firstElementChild.classList.contains('mm-sector')) {
+        container.innerHTML = '';
+        _mmSectorNodes.clear();
+        _mmTileNodes.clear();
+    }
+
+    // Niveau 1 : treemap des secteurs
+    const sectorBoxes = squarify(
+        displaySectors.map(s => ({ ...s, _v: s.cap })),
+        0, 0, W, H
+    );
+
+    const seenSectors = new Set();
+    const seenTickers = new Set();
+
+    sectorBoxes.forEach(sb => {
+        const sec = sb.item;
+        seenSectors.add(sec.name);
+
+        // Récupérer / créer le wrap secteur
+        let entry = _mmSectorNodes.get(sec.name);
+        if (!entry) {
+            const wrap = document.createElement('div');
+            wrap.className = 'mm-sector';
+            const titleEl = document.createElement('div');
+            titleEl.className = 'mm-sector__title';
+            // Clic sur l'en-tête : zoom in/out sur ce secteur
+            titleEl.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const name = wrap.dataset.sector;
+                if (_mmZoomedSector === name) {
+                    setMmZoom(null);
+                } else {
+                    setMmZoom(name);
+                }
+            });
+            wrap.appendChild(titleEl);
+            container.appendChild(wrap);
+            entry = { wrap, titleEl };
+            _mmSectorNodes.set(sec.name, entry);
+        }
+        // Repositionner avec transition CSS
+        const { wrap, titleEl } = entry;
+        wrap.dataset.sector = sec.name;
+        wrap.classList.toggle('mm-sector--zoomed', _mmZoomedSector === sec.name);
+        wrap.style.left = sb.x + 'px';
+        wrap.style.top = sb.y + 'px';
+        wrap.style.width = sb.w + 'px';
+        wrap.style.height = sb.h + 'px';
+
+        const titleH = _mmZoomedSector === sec.name
+            ? Math.min(34, Math.max(22, sb.h * 0.055))
+            : Math.min(22, Math.max(14, sb.h * 0.06));
+        titleEl.style.height = titleH + 'px';
+        titleEl.style.lineHeight = titleH + 'px';
+        titleEl.innerHTML = `${sec.name} <span class="mm-sector__count">(${sec.items.length})</span>`
+            + (_mmZoomedSector === sec.name
+                ? ' <span class="mm-sector__hint">— cliquer pour réduire</span>'
+                : ' <span class="mm-sector__hint">— cliquer pour zoomer</span>');
+
+        // Niveau 2 : treemap des actions
+        const innerY = sb.y + titleH;
+        const innerH = Math.max(0, sb.h - titleH);
+        const sortedItems = sec.items
+            .slice()
+            .sort((a, b) => (b.cap || 0) - (a.cap || 0))
+            .map(it => ({ ...it, _v: it.cap }));
+        const tiles = squarify(sortedItems, sb.x, innerY, sb.w, innerH);
+
+        tiles.forEach(t => {
+            const it = t.item;
+            seenTickers.add(it.ticker);
+            const v = it.variation;
+            const vTxt = v == null ? '—' : ((v > 0 ? '+' : '') + v.toFixed(2) + '%');
+            const bg = variationToColor(v);
+            const area = t.w * t.h;
+            const fsTicker = Math.max(8, Math.min(15, Math.sqrt(area) / 6));
+            const fsVar = Math.max(8, fsTicker - 2);
+            const showVar = t.h > 28 && t.w > 36;
+
+            let tile = _mmTileNodes.get(it.ticker);
+            if (!tile) {
+                tile = document.createElement('a');
+                tile.className = 'mm-tile';
+                tile.innerHTML = `<span class="mm-tile__ticker"></span><span class="mm-tile__var"></span>`;
+                _mmTileNodes.set(it.ticker, tile);
+            }
+            // Re-parenter dans le bon secteur (peut changer si secteur ajouté/supprimé)
+            if (tile.parentNode !== wrap) wrap.appendChild(tile);
+
+            tile.href = `/actions/?ticker=${it.ticker}`;
+            tile.title = `${it.ticker} · ${sec.name} · ${vTxt} · ${formatNumber(it.cloture)} FCFA · Capi: ${formatNumber(Math.round(it.cap))}`;
+            // Coords relatives au wrap (sb.x / sb.y déjà appliqués au wrap)
+            tile.style.left = (t.x - sb.x) + 'px';
+            tile.style.top = (t.y - sb.y) + 'px';
+            tile.style.width = t.w + 'px';
+            tile.style.height = t.h + 'px';
+            tile.style.background = bg;
+
+            const tickerEl = tile.firstElementChild;
+            const varEl = tile.lastElementChild;
+            tickerEl.style.fontSize = fsTicker.toFixed(1) + 'px';
+            tickerEl.textContent = it.ticker.split('.')[0];
+            varEl.style.fontSize = fsVar.toFixed(1) + 'px';
+            varEl.textContent = showVar ? vTxt : '';
+            varEl.style.display = showVar ? '' : 'none';
+        });
+    });
+
+    // Nettoyage : supprimer les nœuds qui n'apparaissent plus
+    _mmTileNodes.forEach((el, ticker) => {
+        if (!seenTickers.has(ticker)) {
+            el.remove();
+            _mmTileNodes.delete(ticker);
+        }
+    });
+    _mmSectorNodes.forEach((entry, name) => {
+        if (!seenSectors.has(name)) {
+            entry.wrap.remove();
+            _mmSectorNodes.delete(name);
+        }
+    });
+
+    if (!_heatmapResizeBound) {
+        _heatmapResizeBound = true;
+        let rT;
+        window.addEventListener('resize', () => {
+            clearTimeout(rT);
+            rT = setTimeout(() => renderHeatmap(_heatmapState.items, _heatmapState.period), 150);
+        });
+    }
+}
+
+// ---- Sparkline action sous surveillance ----
+let featuredSparkChart = null;
+function renderFeaturedSparkline() {
+    const canvas = document.getElementById('featuredSparkline');
+    if (!canvas || !featuredSparkData || featuredSparkData.length < 2) return;
+    if (featuredSparkChart) featuredSparkChart.destroy();
+    const last = featuredSparkData[featuredSparkData.length - 1];
+    const first = featuredSparkData[0];
+    const isUp = last >= first;
+    const color = isUp ? CHART_COLORS.success : CHART_COLORS.danger;
+    const bg = isUp ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+    featuredSparkChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: featuredSparkData.map((_, i) => i),
+            datasets: [{
+                data: featuredSparkData,
+                borderColor: color,
+                backgroundColor: bg,
+                fill: true,
+                tension: 0.3,
+                pointRadius: 0,
+                borderWidth: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: { x: { display: false }, y: { display: false } },
+            animation: false,
+        }
+    });
+}
+
+// Format number for display
+function formatNumber(num, decimals = 0) {
+    if (num === null || num === undefined) return '-';
+    return new Intl.NumberFormat('fr-FR', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+    }).format(num);
+}
+
+function formatPct(num) {
+    if (num === null || num === undefined) return '-';
+    const sign = num > 0 ? '+' : '';
+    return sign + formatNumber(num, 2) + '%';
+}
+
+// Filter chart data by period
+function filterChartData(data, period) {
+    if (!data.labels || data.labels.length === 0) return data;
+    
+    const now = new Date();
+    let daysToShow;
+    
+    switch(period) {
+        case '1m': daysToShow = 22; break;
+        case '3m': daysToShow = 66; break;
+        case '6m': daysToShow = 132; break;
+        case '1y': daysToShow = 252; break;
+        case '3y': daysToShow = 756; break;
+        case '5y': daysToShow = 1260; break;
+        case 'ytd':
+            // Calculate days since beginning of year
+            const startOfYear = new Date(now.getFullYear(), 0, 1);
+            daysToShow = Math.ceil((now - startOfYear) / (1000 * 60 * 60 * 24));
+            break;
+        case 'all':
+        default:
+            return data;
+    }
+    
+    const startIndex = Math.max(0, data.labels.length - daysToShow);
+    return {
+        labels: data.labels.slice(startIndex),
+        values: data.values.slice(startIndex)
+    };
+}
+
+// Create or update the BRVMC chart
+function updateBRVMCChart(period) {
+    const filteredData = filterChartData(allChartData, period);
+    
+    if (brvmcChart) {
+        brvmcChart.data.labels = filteredData.labels;
+        brvmcChart.data.datasets[0].data = filteredData.values;
+        brvmcChart.update('none');
+    } else if (filteredData.labels && filteredData.labels.length > 0) {
+        brvmcChart = createLineChart('chartBRVMC', filteredData.labels, [{
+            label: 'BRVM Composite',
+            data: filteredData.values,
+            borderColor: CHART_COLORS.primary,
+            backgroundColor: 'rgba(37, 99, 235, 0.08)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+            borderWidth: 2,
+        }], {
+            plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false } }
+        });
+    }
+}
+
+// Load performers data from API
+function loadPerformers(period) {
+    return fetch(`/api/performers/?period=${period}`)
+        .then(response => response.json())
+        .then(data => {
+            updatePerformersTable('top5Body', data.top5, true);
+            updatePerformersTable('flop5Body', data.flop5, false);
+            return data;
+        })
+        .catch(err => { console.error('Erreur chargement performers:', err); return null; });
+}
+
+// Combined: refresh top/flop + heatmap + breadth from a single API call
+function loadPerformersAndHeatmap(period) {
+    fetch(`/api/performers/?period=${period}`)
+        .then(r => r.json())
+        .then(data => {
+            updatePerformersTable('top5Body', data.top5, true);
+            updatePerformersTable('flop5Body', data.flop5, false);
+            renderHeatmap(data.all || [], period);
+            updateBreadth(data.breadth || {});
+        })
+        .catch(err => console.error('Erreur perf/heatmap:', err));
+}
+
+function updateBreadth(breadth) {
+    const up = breadth.up || 0;
+    const down = breadth.down || 0;
+    const flat = breadth.flat || 0;
+    const total = up + down + flat;
+    const upR = total ? (up / total * 100) : 0;
+    const downR = total ? (down / total * 100) : 0;
+    const flatR = total ? (flat / total * 100) : 0;
+
+    const root = document.getElementById('marketBreadth');
+    if (!root) return;
+    root.querySelector('.market-breadth__seg--up').style.width = upR + '%';
+    root.querySelector('.market-breadth__seg--flat').style.width = flatR + '%';
+    root.querySelector('.market-breadth__seg--down').style.width = downR + '%';
+    const counts = root.querySelector('.market-breadth__counts');
+    if (counts) {
+        counts.innerHTML = `
+            <span class="text-success"><i class="bi bi-caret-up-fill"></i> ${up}</span>
+            <span class="text-muted mx-2"><i class="bi bi-dash"></i> ${flat}</span>
+            <span class="text-danger"><i class="bi bi-caret-down-fill"></i> ${down}</span>
+        `;
+    }
+}
+
+function updatePerformersTable(bodyId, items, isTop) {
+    const tbody = document.getElementById(bodyId);
+    if (!tbody) return;
+    
+    if (!items || items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Aucune donnée</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = items.map(item => {
+        const sparkAttr = (item.sparkline || []).join(',');
+        return `
+        <tr>
+            <td>
+                <a href="/actions/?ticker=${item.ticker}" class="text-decoration-none text-primary fw-bold">
+                    ${item.ticker}
+                </a>
+            </td>
+            <td>
+                <canvas class="sparkline-canvas" data-spark="${sparkAttr}" data-trend="${isTop ? 'up' : 'down'}" width="80" height="28"></canvas>
+            </td>
+            <td class="text-end">${formatNumber(item.cloture)}</td>
+            <td class="text-end">
+                <span class="badge-variation ${isTop ? 'bg-success-soft' : 'bg-danger-soft'}">${formatPct(item.variation)}</span>
+            </td>
+        </tr>
+    `;
+    }).join('');
+
+    renderSparklines(tbody);
+}
+
+// Render sparkline charts inside a container's canvases
+function renderSparklines(container) {
+    container.querySelectorAll('canvas.sparkline-canvas').forEach(canvas => {
+        const raw = canvas.dataset.spark || '';
+        const values = raw.split(',').map(v => parseFloat(v)).filter(v => !isNaN(v));
+        if (values.length < 2) return;
+
+        if (canvas._sparkChart) {
+            canvas._sparkChart.destroy();
+        }
+
+        const trend = canvas.dataset.trend || 'up';
+        const color = trend === 'down' ? CHART_COLORS.danger : CHART_COLORS.success;
+        const bg = trend === 'down' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+
+        canvas._sparkChart = new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: values.map((_, i) => i),
+                datasets: [{
+                    data: values,
+                    borderColor: color,
+                    backgroundColor: bg,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    borderWidth: 1.5,
+                }]
+            },
+            options: {
+                responsive: false,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: {
+                    x: { display: false },
+                    y: { display: false }
+                },
+                elements: { line: { borderJoinStyle: 'round' } },
+                animation: false,
+            }
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize chart (1A par défaut)
+    updateBRVMCChart('1y');
+
+    // Render initial sparklines (server-rendered top/flop)
+    renderSparklines(document);
+
+    // Ticker-tape, statut marché, heatmap et action sous surveillance
+    initTickerTape();
+    initMarketStatus();
+    renderHeatmap(initialHeatmapData, '1d');
+    renderFeaturedSparkline();
+
+    // Bouton "Retour" du breadcrumb Market Map
+    const mmBack = document.getElementById('mmBreadcrumbBack');
+    if (mmBack) mmBack.addEventListener('click', () => setMmZoom(null));
+    
+    // Chart time filter buttons
+    document.querySelectorAll('#chartTimeFilter .time-filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('#chartTimeFilter .time-filter-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            updateBRVMCChart(this.dataset.period);
+        });
+    });
+    
+    // Performers time filter buttons -> Top/Flop + Heatmap + Largeur de marché
+    document.querySelectorAll('#performersTimeFilter .time-filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('#performersTimeFilter .time-filter-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            const period = this.dataset.period;
+            loadPerformersAndHeatmap(period);
+        });
+    });
+});
+</script>
+{% endblock %}

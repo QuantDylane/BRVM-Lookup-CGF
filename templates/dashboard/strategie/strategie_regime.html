@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}LOOK UP BRVM - Régimes HMM{% endblock %}
+{% block page_title %}<i class="bi bi-graph-up me-2"></i>Détection de Régimes HMM{% endblock %}
+
+{% block top_actions %}
+<a href="{% url 'dashboard:strategie_dashboard' %}" class="btn btn-sm btn-outline-light">
+    <i class="bi bi-arrow-left"></i> Retour
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="kpi-card">
+            <div class="kpi-icon bg-primary-soft"><i class="bi bi-arrow-repeat"></i></div>
+            <div class="kpi-value">{{ nb_changements }}</div>
+            <div class="kpi-label">Changements de régime confirmés</div>
+        </div>
+    </div>
+    {% if derniers_params %}
+    <div class="col-md-3">
+        <div class="kpi-card">
+            <div class="kpi-icon bg-success-soft"><i class="bi bi-database"></i></div>
+            <div class="kpi-value">{{ derniers_params.n_observations }}</div>
+            <div class="kpi-label">Observations entraînement</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="kpi-card">
+            <div class="kpi-icon bg-warning-soft"><i class="bi bi-graph-up"></i></div>
+            <div class="kpi-value">{{ derniers_params.log_likelihood|floatformat:1 }}</div>
+            <div class="kpi-label">Log-vraisemblance</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="kpi-card">
+            <div class="kpi-icon bg-info-soft"><i class="bi bi-cpu"></i></div>
+            <div class="kpi-value">{{ derniers_params.n_regimes }}</div>
+            <div class="kpi-label">Nombre de régimes</div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card mb-4" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+    <div class="card-header">Évolution temporelle des régimes (confirmés)</div>
+    <div class="card-body">
+        <div id="chartRegimes" style="height: 320px;"></div>
+    </div>
+</div>
+
+<div class="card mb-4" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+    <div class="card-header">Probabilités des régimes au cours du temps</div>
+    <div class="card-body">
+        <div id="chartProbas" style="height: 320px;"></div>
+    </div>
+</div>
+
+{% if derniers_params %}
+<div class="card mb-4" style="background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);">
+    <div class="card-header">Matrice de transition</div>
+    <div class="card-body">
+        <table class="table table-bordered text-center" style="max-width: 400px;">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>→ Régime 0</th>
+                    <th>→ Régime 1</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th class="text-success">Régime 0</th>
+                    <td>{{ derniers_params.matrice_transition.0.0|floatformat:4 }}</td>
+                    <td>{{ derniers_params.matrice_transition.0.1|floatformat:4 }}</td>
+                </tr>
+                <tr>
+                    <th class="text-danger">Régime 1</th>
+                    <td>{{ derniers_params.matrice_transition.1.0|floatformat:4 }}</td>
+                    <td>{{ derniers_params.matrice_transition.1.1|floatformat:4 }}</td>
+                </tr>
+            </tbody>
+        </table>
+        <small class="text-muted">P(régime à t+1 | régime à t) — la diagonale forte ⇒ régimes persistants.</small>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const REGIMES_DATA = {{ regimes_json|safe }};
+
+document.addEventListener('DOMContentLoaded', async function() {
+    // 1. Régime confirmé en step
+    const dates = REGIMES_DATA.map(r => r.date);
+    const conf = REGIMES_DATA.map(r => r.regime_confirme);
+    const brut = REGIMES_DATA.map(r => r.regime_brut);
+
+    Plotly.newPlot('chartRegimes', [
+        {x: dates, y: brut, type:'scatter', mode:'lines', name:'Régime brut',
+         line:{shape:'hv', color:'#6c757d', width: 1, dash: 'dot'}, opacity:0.5},
+        {x: dates, y: conf, type:'scatter', mode:'lines', name:'Régime confirmé (d=5)',
+         line:{shape:'hv', color:'#0dcaf0', width: 2}}
+    ], {
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+        font: {color: '#dee2e6'},
+        yaxis: {tickvals: [0, 1], ticktext: ['Favorable (0)', 'Défavorable (1)'], range: [-0.2, 1.2]},
+        margin: {t:20, b:40, l:120, r:20},
+        legend: {orientation:'h', y: -0.15},
+        hovermode: 'x unified',
+    }, {responsive: true});
+
+    // 2. Probabilités
+    const p0 = REGIMES_DATA.map(r => r.proba_regime_0);
+    const p1 = REGIMES_DATA.map(r => r.proba_regime_1);
+    Plotly.newPlot('chartProbas', [
+        {x: dates, y: p0, type:'scatter', mode:'lines', name:'P(Régime 0)',
+         line:{color:'#198754'}, fill:'tozeroy', fillcolor:'rgba(25,135,84,0.2)'},
+        {x: dates, y: p1, type:'scatter', mode:'lines', name:'P(Régime 1)',
+         line:{color:'#dc3545'}, fill:'tozeroy', fillcolor:'rgba(220,53,69,0.2)'},
+    ], {
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+        font: {color: '#dee2e6'},
+        yaxis: {range: [0, 1]},
+        margin: {t:20, b:40, l:50, r:20},
+        legend: {orientation:'h', y: -0.15},
+        hovermode: 'x unified',
+    }, {responsive: true});
+});
+</script>
+{% endblock %}

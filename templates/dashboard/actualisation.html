@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% load dashboard_filters %}
+
+{% block title %}Actualisation - LOOK UP BRVM{% endblock %}
+{% block page_title %}
+<i class="bi bi-arrow-repeat me-2"></i>Actualisation des données
+{% endblock %}
+
+{% block content %}
+<!-- Alerte si données anciennes -->
+{% if alerte_maj %}
+<div class="alert-update mb-4">
+    <i class="bi bi-exclamation-triangle text-warning fs-4"></i>
+    <div>
+        <div class="fw-bold">Données non actualisées</div>
+        <small class="text-muted">Dernière mise à jour : {{ derniere_maj }}. Il est recommandé d'actualiser les données.</small>
+    </div>
+</div>
+{% endif %}
+
+<!-- Statistiques de la base -->
+<div class="row g-3 mb-4">
+    <div class="col-lg-2 col-md-4 col-6">
+        <div class="kpi-card text-center">
+            <div class="kpi-value text-primary">{{ nb_actions }}</div>
+            <div class="kpi-label">Actions</div>
+        </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-6">
+        <div class="kpi-card text-center">
+            <div class="kpi-value text-primary">{{ nb_hist_actions|format_number:0 }}</div>
+            <div class="kpi-label">Points historiques</div>
+        </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-6">
+        <div class="kpi-card text-center">
+            <div class="kpi-value text-primary">{{ nb_indices }}</div>
+            <div class="kpi-label">Indices</div>
+        </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-6">
+        <div class="kpi-card text-center">
+            <div class="kpi-value text-primary">{{ nb_hist_indices|format_number:0 }}</div>
+            <div class="kpi-label">Points indices</div>
+        </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-6">
+        <div class="kpi-card text-center">
+            <div class="kpi-value text-primary">{{ nb_news|format_number:0 }}</div>
+            <div class="kpi-label">Actualités</div>
+        </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-6">
+        <div class="kpi-card text-center">
+            <div class="kpi-value">{{ derniere_maj }}</div>
+            <div class="kpi-label">Dernière MAJ</div>
+        </div>
+    </div>
+</div>
+
+<!-- Boutons d'actualisation manuelle -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <i class="bi bi-bar-chart-line fs-1 text-primary mb-3"></i>
+                <h5>Cours & Indices</h5>
+                <p class="text-muted small">Lance le scraper manuellement pour récupérer les derniers cours et indices depuis Sikafinance</p>
+                <button class="btn btn-primary" onclick="lancerScraping('actions')" id="btnActions">
+                    <i class="bi bi-play-fill me-1"></i>Actualiser les cours
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <i class="bi bi-newspaper fs-1 text-warning mb-3"></i>
+                <h5>Actualités</h5>
+                <p class="text-muted small">Lance le scraper manuellement pour récupérer les dernières actualités BRVM</p>
+                <button class="btn btn-primary" onclick="lancerScraping('news')" id="btnNews">
+                    <i class="bi bi-play-fill me-1"></i>Actualiser les news
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <i class="bi bi-database fs-1 text-success mb-3"></i>
+                <h5>Réimporter les données</h5>
+                <p class="text-muted small">Réimporte les fichiers CSV/JSON dans la base de données</p>
+                <button class="btn btn-outline-secondary" onclick="reimporter()" id="btnReimport">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Réimporter
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Statut en cours -->
+<div id="scrapingStatus" class="card mb-4" style="display: none;">
+    <div class="card-body">
+        <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm text-primary me-3" role="status"></div>
+            <div>
+                <div class="fw-bold" id="statusTitle">Scraping en cours...</div>
+                <small class="text-muted" id="statusMessage">Veuillez patienter</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Historique des scrapings -->
+<div class="card">
+    <div class="card-header"><i class="bi bi-clock-history me-2"></i>Historique des actualisations</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table mb-0">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Date début</th>
+                        <th>Date fin</th>
+                        <th>Statut</th>
+                        <th>Message</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>
+                            <span class="badge {% if log.type_scraping == 'actions' %}bg-primary-soft{% else %}bg-warning-soft{% endif %}">
+                                {{ log.type_scraping }}
+                            </span>
+                        </td>
+                        <td>{{ log.date_debut|date:"d/m/Y H:i" }}</td>
+                        <td>{% if log.date_fin %}{{ log.date_fin|date:"d/m/Y H:i" }}{% else %}-{% endif %}</td>
+                        <td>
+                            {% if log.statut == "succes" %}
+                            <span class="text-success"><i class="bi bi-check-circle me-1"></i>Succès</span>
+                            {% elif log.statut == "erreur" %}
+                            <span class="text-danger"><i class="bi bi-x-circle me-1"></i>Erreur</span>
+                            {% else %}
+                            <span class="text-warning"><i class="bi bi-hourglass-split me-1"></i>En cours</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ log.message|truncatewords:15 }}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">Aucun historique d'actualisation</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentLogId = null;
+let pollInterval = null;
+
+function lancerScraping(type) {
+    const btn = type === 'actions' ? document.getElementById('btnActions') : document.getElementById('btnNews');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>En cours...';
+
+    document.getElementById('scrapingStatus').style.display = 'block';
+    document.getElementById('statusTitle').textContent = `Scraping ${type} en cours...`;
+    document.getElementById('statusMessage').textContent = 'Cela peut prendre quelques minutes';
+
+    fetch('{% url "dashboard:api_run_scraper" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': getCsrfToken(),
+        },
+        body: `type=${type}`
+    })
+    .then(r => r.json())
+    .then(data => {
+        currentLogId = data.log_id;
+        pollInterval = setInterval(() => checkStatus(type), 5000);
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Réessayer';
+        document.getElementById('scrapingStatus').style.display = 'none';
+        alert('Erreur: ' + err.message);
+    });
+}
+
+function checkStatus(type) {
+    if (!currentLogId) return;
+
+    fetch(`{% url "dashboard:api_scraping_status" %}?log_id=${currentLogId}`)
+    .then(r => r.json())
+    .then(data => {
+        if (data.statut !== 'en_cours') {
+            clearInterval(pollInterval);
+            const btn = type === 'actions' ? document.getElementById('btnActions') : document.getElementById('btnNews');
+            btn.disabled = false;
+
+            if (data.statut === 'succes') {
+                btn.innerHTML = '<i class="bi bi-check-circle me-1"></i>Terminé !';
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-success');
+                document.getElementById('statusTitle').textContent = 'Scraping terminé avec succès !';
+                document.getElementById('statusMessage').textContent = data.message || 'Les données ont été mises à jour.';
+            } else {
+                btn.innerHTML = '<i class="bi bi-x-circle me-1"></i>Erreur';
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-danger');
+                document.getElementById('statusTitle').textContent = 'Erreur lors du scraping';
+                document.getElementById('statusMessage').textContent = data.message || 'Consultez les logs.';
+            }
+
+            setTimeout(() => location.reload(), 3000);
+        }
+    });
+}
+
+function reimporter() {
+    const btn = document.getElementById('btnReimport');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Import...';
+
+    // Appel POST pour lancer le réimport via AJAX
+    fetch('{% url "dashboard:api_run_scraper" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': getCsrfToken(),
+        },
+        body: 'type=reimport'
+    })
+    .then(() => {
+        setTimeout(() => location.reload(), 5000);
+    });
+}
+
+function getCsrfToken() {
+    const cookies = document.cookie.split(';');
+    for (let c of cookies) {
+        c = c.trim();
+        if (c.startsWith('csrftoken=')) {
+            return c.substring('csrftoken='.length);
+        }
+    }
+    return '';
+}
+</script>
+{% endblock %}

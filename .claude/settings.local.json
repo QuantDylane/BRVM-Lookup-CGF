@@ -1,0 +1,35 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.sikafinance.com)",
+      "Bash(grep -E \"\\\\.\\(py|html|css|js|json|txt|csv|xlsx|sql|ini|conf|config|yaml|yml\\)$\")",
+      "Bash(python -c \"import django; print\\(django.VERSION\\)\")",
+      "Bash(python -c \"import pandas; print\\(pandas.__version__\\)\")",
+      "Bash(python -c \"import numpy; print\\(numpy.__version__\\)\")",
+      "Bash(django-admin startproject:*)",
+      "Bash(python manage.py startapp dashboard)",
+      "Bash(python -c ':*)",
+      "Bash(python -c \" import csv with open\\('data/indices/BRVM30_historique.csv', 'r', encoding='utf-8'\\) as f: reader = csv.reader\\(f, delimiter=';'\\) for i, row in enumerate\\(reader\\): print\\(row\\) if i > 1: break \")",
+      "Bash(python -c \" import os files = os.listdir\\('data/indices/'\\) print\\(files[:5]\\) import csv with open\\('data/indices/' + files[0], 'r', encoding='utf-8'\\) as f: reader = csv.reader\\(f, delimiter=';'\\) for i, row in enumerate\\(reader\\): print\\(row\\) if i > 1: break \")",
+      "Bash(python manage.py makemigrations dashboard)",
+      "Bash(python manage.py migrate)",
+      "Bash(python manage.py import_data)",
+      "Bash(python manage.py check)",
+      "Bash(timeout 10 python manage.py runserver 127.0.0.1:8001)",
+      "Bash(timeout 10 python manage.py runserver 127.0.0.1:8002)",
+      "Bash(python manage.py runserver 127.0.0.1:8003 --noreload)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8003/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8003/export/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8003/api/factsheet/data/?ticker=SGBC.ci\")",
+      "Bash(kill %1)",
+      "Bash(python manage.py migrate dashboard)",
+      "Bash(python manage.py check --no-color)",
+      "Bash(find \"/c/Users/DYLANE/OneDrive - CGF BOURSE/Bureau/MES PROJETS AVEC CGF GESTION/LOOK UP/LOOK UP BRVM/templates/dashboard\" -name \"*.html\" -exec grep -l \"style=\" {} \\\\;)",
+      "Bash(grep -r \"jQuery\\\\|\\\\$\\\\\\(\" \"/c/Users/DYLANE/OneDrive - CGF BOURSE/Bureau/MES PROJETS AVEC CGF GESTION/LOOK UP/LOOK UP BRVM/static/js/\")",
+      "Bash(find \"/c/Users/DYLANE/OneDrive - CGF BOURSE/Bureau/MES PROJETS AVEC CGF GESTION/LOOK UP/LOOK UP BRVM/static/img\" -type f -exec ls -lh {} \\\\;)"
+    ]
+  }
+}

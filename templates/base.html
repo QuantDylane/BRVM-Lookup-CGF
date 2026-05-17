@@ -1,0 +1,134 @@
+{% load static %}
+{% load dashboard_filters %}
+<!DOCTYPE html>
+<html lang="fr" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LOOK UP BRVM{% endblock %}</title>
+    <!-- Preconnect aux CDN pour réduire la latence DNS/TLS -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <!-- Bootstrap 5.3 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS (cache-bust on chaque rendu pour éviter les versions périmées) -->
+    <link href="{% static 'css/dashboard.css' %}?v={% now 'YmdHis' %}" rel="stylesheet">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-wrapper">
+                <i class="bi bi-graph-up-arrow"></i>
+                <span class="logo-text">LOOK UP</span>
+            </div>
+            <small class="text-muted">BRVM Analytics</small>
+        </div>
+
+        <ul class="nav flex-column sidebar-nav">
+            <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.url_name == 'accueil' %}active{% endif %}" href="{% url 'dashboard:accueil' %}">
+                    <i class="bi bi-house-door"></i>
+                    <span>Accueil</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.url_name == 'analyse_actions' %}active{% endif %}" href="{% url 'dashboard:analyse_actions' %}">
+                    <i class="bi bi-bar-chart-line"></i>
+                    <span>Analyse Actions</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.url_name == 'analyse_indices' %}active{% endif %}" href="{% url 'dashboard:analyse_indices' %}">
+                    <i class="bi bi-activity"></i>
+                    <span>Analyse Indices</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.url_name == 'analyse_nouvelles' %}active{% endif %}" href="{% url 'dashboard:analyse_nouvelles' %}">
+                    <i class="bi bi-newspaper"></i>
+                    <span>Actualités</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.url_name == 'performances' %}active{% endif %}" href="{% url 'dashboard:performances' %}">
+                    <i class="bi bi-trophy"></i>
+                    <span>Performances</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.url_name == 'risque_volatilite' %}active{% endif %}" href="{% url 'dashboard:risque_volatilite' %}">
+                    <i class="bi bi-shield-exclamation"></i>
+                    <span>Risque & Volatilité</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.url_name == 'export_factsheet' %}active{% endif %}" href="{% url 'dashboard:export_factsheet' %}">
+                    <i class="bi bi-file-earmark-pdf"></i>
+                    <span>Export Factsheet</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.url_name == 'simulation_portefeuille' %}active{% endif %}" href="{% url 'dashboard:simulation_portefeuille' %}">
+                    <i class="bi bi-wallet2"></i>
+                    <span>Simulation Portefeuille</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if 'strategie' in request.resolver_match.url_name|default:'' %}active{% endif %}" href="{% url 'dashboard:strategie_dashboard' %}">
+                    <i class="bi bi-diagram-3"></i>
+                    <span>Stratégie HMM</span>
+                </a>
+            </li>
+            <li class="nav-item mt-3 border-top pt-3">
+                <a class="nav-link {% if request.resolver_match.url_name == 'actualisation' %}active{% endif %}" href="{% url 'dashboard:actualisation' %}">
+                    <i class="bi bi-arrow-repeat"></i>
+                    <span>Actualisation</span>
+                </a>
+            </li>
+        </ul>
+
+        <div class="sidebar-footer">
+            <small class="text-muted">
+                <i class="bi bi-clock"></i>
+                Dernière MAJ: {{ derniere_maj|default:"N/A" }}
+            </small>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main id="main-content" class="main-content">
+        <!-- Top Bar -->
+        <header class="top-bar">
+            <button class="btn btn-link sidebar-toggle" id="sidebarToggle">
+                <i class="bi bi-list fs-4"></i>
+            </button>
+            <h1 class="page-title mb-0">{% block page_title %}Dashboard{% endblock %}</h1>
+            <div class="top-bar-actions">
+                {% block top_actions %}{% endblock %}
+            </div>
+        </header>
+
+        <!-- Page Content -->
+        <div class="content-wrapper">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Scripts (defer = non bloquants, exécutés après parsing HTML, dans l'ordre) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js" defer></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+    <script src="{% static 'js/dashboard.js' %}" defer></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
