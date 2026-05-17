@@ -5,7 +5,12 @@ on:
     # 20h00 Abidjan (UTC+0) du lundi au vendredi
     # La BRVM est fermée le week-end, inutile de scraper
     - cron: '0 20 * * 1-5'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      include_info_societes:
+        description: "Inclure le scraping des infos sociétés (lent)"
+        required: false
+        default: "false"
 
 concurrency:
   group: brvm-scrape
@@ -16,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -27,17 +32,41 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: requirements-scraping.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-scraping.txt
 
-      - name: Run scraper (cours & indices)
+      # 1) Cours & indices (critique)
+      - name: Scraper cours & indices
         run: python scraper_brvm.py full
 
-      - name: Run scraper (news)
+      # 2) News (non bloquant)
+      - name: Scraper news
         run: python scraper_news_brvm.py
+        continue-on-error: true
+
+      # 3) Dividendes (non bloquant)
+      - name: Scraper dividendes
+        run: python scraper_dividendes.py
+        continue-on-error: true
+
+      # 4) Infos sociétés — uniquement le lundi (jour 1) ou si déclenché manuellement avec le flag
+      - name: Scraper infos sociétés & indices (hebdo)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.include_info_societes == 'true'
+        run: python scraper_info_societes.py
+        continue-on-error: true
+
+      - name: Scraper infos sociétés & indices (lundi auto)
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%u)" = "1" ]; then
+            python scraper_info_societes.py
+          else
+            echo "Pas lundi — on saute infos sociétés."
+          fi
         continue-on-error: true
 
       - name: Commit & push data
