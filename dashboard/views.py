@@ -1076,25 +1076,101 @@ def compute_max_drawdown(prices):
 
 
 def actualisation(request):
+    from pathlib import Path
+    from datetime import datetime
+
     ctx = get_context_base(request)
 
-    # Historique des scrapings
     logs = ScrapingLog.objects.all()[:20]
 
-    # Statistiques
-    nb_actions = Action.objects.count()
-    nb_hist_actions = HistoriqueAction.objects.count()
-    nb_indices = Indice.objects.count()
-    nb_hist_indices = HistoriqueIndice.objects.count()
-    nb_news = News.objects.count()
+    data_dir = Path(settings.DATA_DIR)
+
+    def _freshness(folder, pattern="*"):
+        """Renvoie (date_iso, jours_depuis, nb_fichiers) pour le fichier le plus récent."""
+        p = data_dir / folder
+        if not p.exists():
+            return None, None, 0
+        files = list(p.glob(pattern))
+        if not files:
+            return None, None, 0
+        latest = max(files, key=lambda f: f.stat().st_mtime)
+        mtime = datetime.fromtimestamp(latest.stat().st_mtime)
+        jours = (datetime.now() - mtime).days
+        return mtime, jours, len(files)
+
+    cours_date, cours_jours, cours_nb = _freshness("actions", "*_historique.csv")
+    indices_date, indices_jours, indices_nb = _freshness("indices", "*.csv")
+    news_date, news_jours, news_nb = _freshness("news", "*.csv")
+    div_date, div_jours, div_nb = _freshness("dividendes", "*.csv")
+    soc_date, soc_jours, soc_nb = _freshness("societes", "*_societe.json")
+
+    datasets = [
+        {
+            "key": "cours", "label": "Cours actions",
+            "icon": "bi-bar-chart-line", "color": "primary",
+            "date": cours_date, "jours": cours_jours, "nb": cours_nb,
+            "seuil_warn": 2, "seuil_danger": 5,
+            "db_count": HistoriqueAction.objects.count(),
+            "db_label": "points historiques",
+        },
+        {
+            "key": "indices", "label": "Indices",
+            "icon": "bi-activity", "color": "info",
+            "date": indices_date, "jours": indices_jours, "nb": indices_nb,
+            "seuil_warn": 2, "seuil_danger": 5,
+            "db_count": HistoriqueIndice.objects.count(),
+            "db_label": "points indices",
+        },
+        {
+            "key": "news", "label": "Actualités",
+            "icon": "bi-newspaper", "color": "warning",
+            "date": news_date, "jours": news_jours, "nb": news_nb,
+            "seuil_warn": 3, "seuil_danger": 7,
+            "db_count": News.objects.count(),
+            "db_label": "articles",
+        },
+        {
+            "key": "dividendes", "label": "Dividendes",
+            "icon": "bi-cash-coin", "color": "success",
+            "date": div_date, "jours": div_jours, "nb": div_nb,
+            "seuil_warn": 7, "seuil_danger": 30,
+            "db_count": None, "db_label": "",
+        },
+        {
+            "key": "societes", "label": "Infos sociétés",
+            "icon": "bi-building", "color": "secondary",
+            "date": soc_date, "jours": soc_jours, "nb": soc_nb,
+            "seuil_warn": 14, "seuil_danger": 60,
+            "db_count": Action.objects.count(),
+            "db_label": "sociétés",
+        },
+    ]
+
+    # Statut global (le pire de tous)
+    statuts = []
+    for d in datasets:
+        if d["jours"] is None:
+            statuts.append("vide")
+        elif d["jours"] >= d["seuil_danger"]:
+            statuts.append("danger")
+        elif d["jours"] >= d["seuil_warn"]:
+            statuts.append("warning")
+        else:
+            statuts.append("ok")
+        d["statut"] = statuts[-1]
+
+    if "danger" in statuts or "vide" in statuts:
+        statut_global = "danger"
+    elif "warning" in statuts:
+        statut_global = "warning"
+    else:
+        statut_global = "ok"
 
     ctx.update({
         "logs": logs,
-        "nb_actions": nb_actions,
-        "nb_hist_actions": nb_hist_actions,
-        "nb_indices": nb_indices,
-        "nb_hist_indices": nb_hist_indices,
-        "nb_news": nb_news,
+        "datasets": datasets,
+        "statut_global": statut_global,
+        "github_actions_url": "https://github.com/QuantDylane/BRVM-Lookup-CGF/actions",
     })
     return render(request, "dashboard/actualisation.html", ctx)
 

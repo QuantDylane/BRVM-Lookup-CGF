@@ -29,8 +29,28 @@ def run_scraping(scraper_type="actions"):
     log = ScrapingLog.objects.create(
         type_scraping=scraper_type,
         statut="en_cours",
-        message=f"Lancement du scraping {scraper_type}..."
+        message=f"Lancement {scraper_type}..."
     )
+
+    # Mode réimport pur : pas de scraping, juste call_command import_data
+    if scraper_type == "reimport":
+        try:
+            call_command("import_data")
+            nb = (HistoriqueAction.objects.count()
+                  + HistoriqueIndice.objects.count()
+                  + News.objects.count())
+            log.statut = "succes"
+            log.message = f"Réimport des fichiers data/ — {nb} enregistrements en base"
+            log.nb_elements = nb
+            log.date_fin = timezone.now()
+            log.save()
+            return {"statut": "succes", "message": log.message, "log_id": log.id, "nb_elements": nb}
+        except Exception as e:
+            log.statut = "erreur"
+            log.message = str(e)[:1000]
+            log.date_fin = timezone.now()
+            log.save()
+            return {"statut": "erreur", "message": log.message, "log_id": log.id, "nb_elements": 0}
 
     try:
         base_dir = settings.BASE_DIR
