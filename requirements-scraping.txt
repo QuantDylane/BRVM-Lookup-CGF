@@ -2,3 +2,7 @@ requests>=2.31
 pandas>=2.0
 beautifulsoup4>=4.12
 lxml>=4.9
+
+# Django (nécessaire pour manage.py import_data en CI)
+Django>=4.2,<5.2
+python-dotenv>=1.0

@@ -68,6 +68,8 @@ DATABASES = {
     }
 }
 
+
+
 AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = "fr-fr"
