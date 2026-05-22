@@ -28,7 +28,11 @@ from dashboard.strategie_hmm.core.portefeuilles_factoriels import (
     charger_rendements_depuis_bd,
     construire_rendements_factoriels,
 )
-from dashboard.strategie_hmm.core.scoring import scorer_actions, selectionner_top_n
+from dashboard.strategie_hmm.core.scoring import (
+    appliquer_contraintes_liquidite,
+    scorer_actions,
+    selectionner_top_n,
+)
 
 
 def construire_rendements_si_necessaire(force: bool = False) -> int:
@@ -47,6 +51,8 @@ def executer_pipeline_complet(
     strategie: str = "SHARPE_HMM",
     nb_actions_top: int = 15,
     d_confirmation: int = 5,
+    capital: float = 10_000_000.0,
+    lambda_participation: float = 0.15,
 ) -> dict:
     """Exécute le pipeline complet : HMM → optimisation → scoring → allocation.
 
@@ -144,7 +150,27 @@ def executer_pipeline_complet(
 
     scores = scorer_actions(df_facteurs_societes, poids_facteurs, methode="zscore")
     top = selectionner_top_n(scores, n=nb_actions_top)
-    poids_actions = {str(t): float(p) for t, p in top["poids"].items()}
+
+    # 7ter. Contraintes de liquidité (ADV, protocole R2 du mémoire)
+    adv_series = (
+        df_facteurs_societes["VOLUME"]
+        if "VOLUME" in df_facteurs_societes.columns
+        else pd.Series(dtype=float)
+    )
+    top_contraint = appliquer_contraintes_liquidite(
+        top, adv_series, capital, lambda_participation
+    )
+    poids_actions = {str(t): float(p) for t, p in top_contraint["poids_contraint"].items()}
+    contraintes_liquidite = {
+        str(t): {
+            "adv": float(row["adv"]),
+            "w_max": float(row["w_max"]),
+            "poids_brut": float(row["poids"]),
+            "poids_contraint": float(row["poids_contraint"]),
+            "feasible": bool(row["feasible"]),
+        }
+        for t, row in top_contraint.iterrows()
+    }
 
     # 8. Sauvegarder l'allocation
     alloc = AllocationStrategie.objects.create(
@@ -159,6 +185,9 @@ def executer_pipeline_complet(
         rendement_attendu=metriques["rendement_annualise"],
         volatilite_attendue=metriques["volatilite_annualisee"],
         sharpe_attendu=metriques["sharpe_annualise"],
+        lambda_participation=lambda_participation,
+        capital_reference=capital,
+        contraintes_liquidite=contraintes_liquidite,
     )
 
     return {
@@ -179,6 +208,9 @@ def executer_pipeline_complet(
         "regime_id": regime.id,
         "n_actions_matchees": len(df_facteurs_societes),
         "n_actions_non_matchees": 0,
+        "contraintes_liquidite": contraintes_liquidite,
+        "lambda_participation": lambda_participation,
+        "capital_reference": capital,
     }
 
 

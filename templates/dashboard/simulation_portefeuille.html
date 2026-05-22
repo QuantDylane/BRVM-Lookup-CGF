@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load dashboard_filters %}
+{% load dashboard_filters l10n %}
 
 {% block title %}LOOK UP BRVM - Simulation Portefeuille{% endblock %}
 {% block page_title %}
@@ -131,6 +131,52 @@
 </div>
 
 {% if portefeuille %}
+
+<!-- Onglets principaux -->
+<ul class="nav nav-tabs mb-3" id="simTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="tab-vue-tab" data-bs-toggle="tab" data-bs-target="#tab-vue" type="button" role="tab">
+            <i class="bi bi-grid-3x3-gap me-1"></i>Vue portefeuille
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-bench-tab" data-bs-toggle="tab" data-bs-target="#tab-bench" type="button" role="tab">
+            <i class="bi bi-graph-up me-1"></i>Benchmark
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-compare-tab" data-bs-toggle="tab" data-bs-target="#tab-compare" type="button" role="tab">
+            <i class="bi bi-bar-chart-steps me-1"></i>Comparaison portefeuilles
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-strat-tab" data-bs-toggle="tab" data-bs-target="#tab-strat" type="button" role="tab">
+            <i class="bi bi-diagram-3 me-1"></i>Stratégies
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="simTabsContent">
+
+<!-- ============================ -->
+<!-- ONGLET 1 : VUE PORTEFEUILLE  -->
+<!-- ============================ -->
+<div class="tab-pane fade show active" id="tab-vue" role="tabpanel">
+
+{% if kpis %}
+<!-- KPIs étendus -->
+<div class="row g-2 mb-3">
+    <div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">Rendement total</div><div class="kpi-value {% if kpis.rendement_total_pct >= 0 %}text-success{% else %}text-danger{% endif %}">{{ kpis.rendement_total_pct|format_pct }}</div></div></div>
+    <div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">Rdt annualisé</div><div class="kpi-value {% if kpis.rendement_annualise_pct >= 0 %}text-success{% else %}text-danger{% endif %}">{{ kpis.rendement_annualise_pct|format_pct }}</div></div></div>
+    <div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">Volatilité ann.</div><div class="kpi-value text-warning">{{ kpis.volatilite_annualisee_pct|format_pct }}</div></div></div>
+    <div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">Sharpe</div><div class="kpi-value {% if kpis.sharpe >= 1 %}text-success{% elif kpis.sharpe >= 0 %}text-warning{% else %}text-danger{% endif %}">{{ kpis.sharpe }}</div></div></div>
+    <div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">Max drawdown</div><div class="kpi-value text-danger">{{ kpis.max_drawdown_pct|format_pct }}</div></div></div>
+    <div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">Alpha ann.</div><div class="kpi-value {% if kpis.alpha_annualise_pct and kpis.alpha_annualise_pct >= 0 %}text-success{% elif kpis.alpha_annualise_pct %}text-danger{% else %}text-muted{% endif %}">{% if kpis.alpha_annualise_pct is not None %}{{ kpis.alpha_annualise_pct|format_pct }}{% else %}—{% endif %}</div></div></div>
+    <div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">Beta</div><div class="kpi-value text-info">{% if kpis.beta is not None %}{{ kpis.beta }}{% else %}—{% endif %}</div></div></div>
+    <div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">Jours positifs</div><div class="kpi-value">{{ kpis.win_rate_pct }}%</div></div></div>
+</div>
+{% endif %}
+
 <!-- Ajouter un investissement -->
 <div class="row g-3 mb-4">
     <div class="col-12">
@@ -233,11 +279,17 @@
                                     {% if pos.nb_entrees == 1 %}
                                     {% with sl=pos.sous_lignes.0 %}
                                     <button class="btn btn-sm btn-outline-warning"
-                                            onclick="ouvrirModalVente({{ sl.id }}, '{{ pos.ticker }}', {{ sl.quantite }}, {{ sl.prix_achat }}, '{{ sl.date_achat }}', '{{ sl.date_achat_iso }}')"
+                                            onclick="ouvrirModalVente({{ sl.id|unlocalize }}, '{{ pos.ticker }}', {{ sl.quantite|unlocalize }}, {{ sl.prix_achat|unlocalize }}, '{{ sl.date_achat }}', '{{ sl.date_achat_iso }}')"
                                             title="Vendre">
                                         <i class="bi bi-cash-coin"></i>
                                     </button>
                                     {% endwith %}
+                                    {% else %}
+                                    <button class="btn btn-sm btn-outline-warning"
+                                            onclick="ouvrirSelecteurEntreeVente({{ forloop.counter }}, '{{ pos.ticker }}')"
+                                            title="Vendre une entrée">
+                                        <i class="bi bi-cash-coin"></i>
+                                    </button>
                                     {% endif %}
                                 </td>
                             </tr>
@@ -262,7 +314,7 @@
                                 <td class="text-end">-</td>
                                 <td class="text-end">
                                     <button class="btn btn-sm btn-outline-warning"
-                                            onclick="ouvrirModalVente({{ sl.id }}, '{{ pos.ticker }}', {{ sl.quantite }}, {{ sl.prix_achat }}, '{{ sl.date_achat }}', '{{ sl.date_achat_iso }}')"
+                                            onclick="ouvrirModalVente({{ sl.id|unlocalize }}, '{{ pos.ticker }}', {{ sl.quantite|unlocalize }}, {{ sl.prix_achat|unlocalize }}, '{{ sl.date_achat }}', '{{ sl.date_achat_iso }}')"
                                             title="Vendre cette entrée">
                                         <i class="bi bi-cash-coin"></i>
                                     </button>
@@ -282,12 +334,12 @@
                         <tfoot class="table-dark">
                             <tr>
                                 <td colspan="2"><strong>TOTAL</strong></td>
-                                <td class="text-end"><strong>-</strong></td>
-                                <td class="text-end"><strong>-</strong></td>
-                                <td class="text-end"><strong>-</strong></td>
-                                <td class="text-end"><strong id="totalValeur">-</strong></td>
-                                <td class="text-end"><strong id="totalPnl">-</strong></td>
-                                <td class="text-end"><strong id="totalFrais">-</strong></td>
+                                <td class="text-end text-muted">-</td>
+                                <td class="text-end text-muted">-</td>
+                                <td class="text-end text-muted">-</td>
+                                <td class="text-end"><strong>{{ totaux.valeur|format_number:0 }}</strong></td>
+                                <td class="text-end {{ totaux.pnl|color_variation }}"><strong>{{ totaux.pnl|format_number:0 }}</strong></td>
+                                <td class="text-end text-muted"><strong>{{ totaux.frais|format_number:0 }}</strong></td>
                                 <td class="text-end"><strong>100%</strong></td>
                                 <td></td>
                             </tr>
@@ -323,26 +375,175 @@
     </div>
 </div>
 
-<!-- Graphique benchmark -->
-{% if benchmark_data != "null" %}
-<div class="row g-3 mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-graph-up me-2"></i>Performance vs BRVM Composite (base 100)
+<!-- Alerte concentration -->
+<div id="alerteConcentration" class="mb-4"></div>
+
+</div>
+<!-- FIN ONGLET 1 : VUE -->
+
+<!-- ============================ -->
+<!-- ONGLET 2 : BENCHMARK         -->
+<!-- ============================ -->
+<div class="tab-pane fade" id="tab-bench" role="tabpanel">
+    {% if benchmark_data != "null" %}
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span><i class="bi bi-graph-up me-2"></i>Performance vs <span id="benchLabel">indice</span> (base 100)</span>
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label mb-0 small text-muted">Indice :</label>
+                <select class="form-select form-select-sm" style="width:auto;" onchange="changerIndiceBenchmark(this.value)">
+                    {% for idx in indices_dispos %}
+                    <option value="{{ idx.ticker }}" {% if idx.ticker == indice_benchmark_courant %}selected{% endif %}>{{ idx.ticker }}{% if idx.nom %} — {{ idx.nom }}{% endif %}</option>
+                    {% endfor %}
+                </select>
             </div>
-            <div class="card-body">
-                <div class="chart-container" style="height: 300px;">
-                    <canvas id="chartBenchmark"></canvas>
-                </div>
+        </div>
+        <div class="card-body">
+            <div class="chart-container" style="height: 400px;">
+                <canvas id="chartBenchmark"></canvas>
             </div>
         </div>
     </div>
-</div>
-{% endif %}
 
-<!-- Alerte concentration -->
-<div id="alerteConcentration" class="mb-4"></div>
+    {% if kpis %}
+    <div class="card">
+        <div class="card-header"><i class="bi bi-clipboard-data me-2"></i>Comparaison portefeuille vs {{ indice_benchmark_courant }}</div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Indicateur</th><th class="text-end">Portefeuille</th><th class="text-end">{{ indice_benchmark_courant }}</th><th class="text-end">Écart</th></tr></thead>
+                    <tbody>
+                        <tr><td>Rendement total ({{ kpis.nb_jours }}j)</td><td class="text-end {% if kpis.rendement_total_pct >= 0 %}text-success{% else %}text-danger{% endif %}">{{ kpis.rendement_total_pct|format_pct }}</td><td class="text-end {% if kpis.rendement_idx_total_pct >= 0 %}text-success{% else %}text-danger{% endif %}">{{ kpis.rendement_idx_total_pct|format_pct }}</td><td class="text-end {% if kpis.ecart_vs_indice_pct >= 0 %}text-success{% else %}text-danger{% endif %}"><strong>{{ kpis.ecart_vs_indice_pct|format_pct }}</strong></td></tr>
+                        <tr><td>Rendement annualisé</td><td class="text-end">{{ kpis.rendement_annualise_pct|format_pct }}</td><td class="text-muted text-end">—</td><td class="text-end">—</td></tr>
+                        <tr><td>Volatilité annualisée</td><td class="text-end text-warning">{{ kpis.volatilite_annualisee_pct|format_pct }}</td><td class="text-muted text-end">—</td><td class="text-end">—</td></tr>
+                        <tr><td>Sharpe</td><td class="text-end">{{ kpis.sharpe }}</td><td class="text-muted text-end">—</td><td class="text-end">—</td></tr>
+                        <tr><td>Max drawdown</td><td class="text-end text-danger">{{ kpis.max_drawdown_pct|format_pct }}</td><td class="text-muted text-end">—</td><td class="text-end">—</td></tr>
+                        <tr><td>Alpha annualisé</td><td class="text-end">{% if kpis.alpha_annualise_pct is not None %}{{ kpis.alpha_annualise_pct|format_pct }}{% else %}—{% endif %}</td><td class="text-muted text-end">—</td><td class="text-end">—</td></tr>
+                        <tr><td>Beta</td><td class="text-end">{% if kpis.beta is not None %}{{ kpis.beta }}{% else %}—{% endif %}</td><td class="text-muted text-end">—</td><td class="text-end">—</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <small class="text-muted mt-2 d-block">Période : {{ kpis.date_debut }} → {{ kpis.date_fin }} · {{ kpis.nb_jours }} points</small>
+        </div>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="card"><div class="card-body text-center text-muted py-5">
+        <i class="bi bi-graph-up fs-1 mb-2 d-block opacity-50"></i>
+        <p>Ajoutez au moins une position pour voir le benchmark.</p>
+    </div></div>
+    {% endif %}
+</div>
+
+<!-- ============================ -->
+<!-- ONGLET 3 : COMPARAISON       -->
+<!-- ============================ -->
+<div class="tab-pane fade" id="tab-compare" role="tabpanel">
+    <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-bar-chart-steps me-2"></i>Comparer plusieurs portefeuilles</div>
+        <div class="card-body">
+            <p class="text-muted mb-3">Sélectionnez 2 portefeuilles ou plus à comparer côte à côte (KPIs et courbes base 100).</p>
+            <div class="row g-2 mb-3">
+                {% for pf in portefeuilles %}
+                <div class="col-md-4 col-sm-6">
+                    <div class="form-check">
+                        <input class="form-check-input cmp-checkbox" type="checkbox" value="{{ pf.id }}" id="cmpPf{{ pf.id }}" {% if pf.id == portefeuille.id %}checked{% endif %}>
+                        <label class="form-check-label" for="cmpPf{{ pf.id }}">{{ pf.nom }}</label>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="lancerComparaison()">
+                <i class="bi bi-play-fill me-1"></i>Lancer la comparaison
+            </button>
+            <div id="comparaisonResultats" class="mt-3"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================ -->
+<!-- ONGLET 4 : STRATÉGIES        -->
+<!-- ============================ -->
+<div class="tab-pane fade" id="tab-strat" role="tabpanel">
+    <ul class="nav nav-pills mb-3" role="tablist">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#strat-apply" type="button">
+            <i class="bi bi-cart-plus me-1"></i>Allocation ponctuelle</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#strat-backtest" type="button">
+            <i class="bi bi-clock-history me-1"></i>Backtest période</button></li>
+    </ul>
+    <div class="tab-content">
+
+        <!-- Sous-onglet : Allocation ponctuelle -->
+        <div class="tab-pane fade show active" id="strat-apply" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><i class="bi bi-list-check me-2"></i>Stratégies disponibles</div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">Sélectionnez une ou plusieurs allocations HMM, répartissez le montant entre elles, et appliquez-les à votre portefeuille à une date donnée.</p>
+                    <div id="stratListe" class="mb-3">
+                        <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement des allocations...</div>
+                    </div>
+
+                    <hr>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label">Date d'application</label>
+                            <input type="date" class="form-control" id="stratDateAchat">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Montant total à allouer (FCFA)</label>
+                            <input type="number" class="form-control" id="stratMontant" min="0" step="100000" placeholder="Ex: 5 000 000">
+                            <small class="text-muted">Liquidité dispo : <strong>{{ portefeuille.liquidite|format_number:0 }}</strong> FCFA</small>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-success w-100" onclick="appliquerStrategies()">
+                                <i class="bi bi-check-lg me-1"></i>Appliquer au portefeuille
+                            </button>
+                        </div>
+                    </div>
+                    <div id="stratApplyResult" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sous-onglet : Backtest -->
+        <div class="tab-pane fade" id="strat-backtest" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><i class="bi bi-clock-history me-2"></i>Backtest buy-and-hold</div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">Simule un investissement initial selon les poids d'une allocation et calcule la performance jour par jour sur la période choisie.</p>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label">Allocation à backtester</label>
+                            <select class="form-select" id="btAlloc"></select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Date début</label>
+                            <input type="date" class="form-control" id="btDateDebut">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Date fin</label>
+                            <input type="date" class="form-control" id="btDateFin">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Montant init (FCFA)</label>
+                            <input type="number" class="form-control" id="btMontant" value="10000000" min="100000" step="100000">
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-primary w-100" onclick="lancerBacktest()">
+                                <i class="bi bi-play-fill me-1"></i>Lancer
+                            </button>
+                        </div>
+                    </div>
+                    <div id="btResult" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+</div>
+<!-- FIN tab-content -->
 
 <!-- Modal de vente -->
 <div class="modal fade" id="modalVente" tabindex="-1">
@@ -390,10 +591,11 @@
 
 {% block extra_js %}
 <script>
-const portefeuilleId = {{ portefeuille.id|default:"null" }};
+const portefeuilleId = {{ portefeuille.id|unlocalize|default:"null" }};
 const repartitionData = {{ repartition_data|safe }};
 const benchmarkData = {{ benchmark_data|safe }};
-const fraisCourtage = {{ portefeuille.frais_courtage_pct|default:"1.0" }};
+const positionsData = {{ positions_json|safe }};
+const fraisCourtage = {{ portefeuille.frais_courtage_pct|unlocalize|default:"1.0" }};
 let datesDisponibles = [];
 let datesDisponiblesVente = [];
 let prixActuel = null;
@@ -409,6 +611,101 @@ function selectPortefeuille(id) {
     } else {
         window.location.href = '{% url "dashboard:simulation_portefeuille" %}';
     }
+}
+
+// Changement d'indice benchmark
+function changerIndiceBenchmark(ticker) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('indice', ticker);
+    if (portefeuilleId) url.searchParams.set('portefeuille', portefeuilleId);
+    window.location.href = url.toString();
+}
+
+// ====== COMPARAISON DE PORTEFEUILLES ======
+let chartComparaisonInstance = null;
+async function lancerComparaison() {
+    const checks = document.querySelectorAll('.cmp-checkbox:checked');
+    const ids = Array.from(checks).map(c => c.value);
+    const container = document.getElementById('comparaisonResultats');
+    if (ids.length < 1) {
+        container.innerHTML = '<div class="alert alert-warning">Sélectionnez au moins 1 portefeuille.</div>';
+        return;
+    }
+    container.innerHTML = '<div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Calcul en cours...</div>';
+
+    const resp = await fetch(`/api/portefeuille/comparer/?ids=${ids.join(',')}`);
+    const data = await resp.json();
+    if (!data.success) {
+        container.innerHTML = `<div class="alert alert-danger">${data.error || 'Erreur'}</div>`;
+        return;
+    }
+
+    // Tableau comparatif des KPIs
+    const colorsLine = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444'];
+    let html = '<div class="table-responsive mb-3"><table class="table table-sm align-middle"><thead><tr>';
+    html += '<th>Portefeuille</th><th class="text-end">Rdt total</th><th class="text-end">Rdt annualisé</th><th class="text-end">Volatilité</th><th class="text-end">Sharpe</th><th class="text-end">Max DD</th><th class="text-end">Alpha</th><th class="text-end">Beta</th></tr></thead><tbody>';
+    data.portefeuilles.forEach((p, i) => {
+        if (p.error) {
+            html += `<tr><td><span class="badge" style="background:${colorsLine[i % colorsLine.length]}">●</span> ${p.nom}</td><td colspan="7" class="text-muted">${p.error}</td></tr>`;
+            return;
+        }
+        const k = p.kpis;
+        if (!k) { html += `<tr><td>${p.nom}</td><td colspan="7" class="text-muted">KPIs non calculables</td></tr>`; return; }
+        const rt = k.rendement_total_pct, ra = k.rendement_annualise_pct;
+        html += `<tr>
+            <td><span style="color:${colorsLine[i % colorsLine.length]};font-size:1.2em">●</span> <strong>${p.nom}</strong></td>
+            <td class="text-end ${rt >= 0 ? 'text-success' : 'text-danger'}">${rt.toFixed(2)}%</td>
+            <td class="text-end ${ra >= 0 ? 'text-success' : 'text-danger'}">${ra.toFixed(2)}%</td>
+            <td class="text-end text-warning">${k.volatilite_annualisee_pct.toFixed(2)}%</td>
+            <td class="text-end">${k.sharpe}</td>
+            <td class="text-end text-danger">${k.max_drawdown_pct.toFixed(2)}%</td>
+            <td class="text-end">${k.alpha_annualise_pct !== null ? k.alpha_annualise_pct.toFixed(2) + '%' : '—'}</td>
+            <td class="text-end">${k.beta !== null ? k.beta : '—'}</td>
+        </tr>`;
+    });
+    html += '</tbody></table></div>';
+    html += '<div class="card"><div class="card-header"><i class="bi bi-graph-up me-2"></i>Courbes base 100</div><div class="card-body"><div class="chart-container" style="height:400px"><canvas id="chartComparaison"></canvas></div></div></div>';
+    container.innerHTML = html;
+
+    // Graphique
+    const datasets = data.portefeuilles.filter(p => !p.error && p.courbe).map((p, i) => ({
+        label: p.nom,
+        data: p.courbe,
+        borderColor: colorsLine[i % colorsLine.length],
+        backgroundColor: 'transparent',
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2,
+    }));
+    if (data.indice && data.indice.courbe) {
+        datasets.push({
+            label: data.indice.ticker || 'Indice',
+            data: data.indice.courbe,
+            borderColor: '#6366f1',
+            borderDash: [5, 5],
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 1.5,
+        });
+    }
+
+    const labels = data.portefeuilles.find(p => p.dates)?.dates || (data.indice && data.indice.dates) || [];
+    if (chartComparaisonInstance) chartComparaisonInstance.destroy();
+    const ctx = document.getElementById('chartComparaison').getContext('2d');
+    chartComparaisonInstance = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: '#9ca3af' } } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af', maxTicksLimit: 10 } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
+            },
+        },
+    });
 }
 
 // Créer un portefeuille
@@ -741,33 +1038,55 @@ function formatNumber(n) {
     return Math.round(n).toLocaleString('fr-FR');
 }
 
-// Calculer les totaux du tableau
-function calculerTotaux() {
-    if (!repartitionData) return;
+// Ouvrir un sélecteur d'entrée à vendre (position multi-entrées)
+function ouvrirSelecteurEntreeVente(idxPos, ticker) {
+    // idxPos = forloop.counter (1-based) → index dans positionsData
+    const pos = positionsData[idxPos - 1];
+    if (!pos || !pos.sous_lignes || pos.sous_lignes.length === 0) {
+        alert("Aucune entrée à vendre pour " + ticker);
+        return;
+    }
+    // S'il n'y a qu'une seule entrée active, on ouvre directement la vente
+    if (pos.sous_lignes.length === 1) {
+        const sl = pos.sous_lignes[0];
+        ouvrirModalVente(sl.id, ticker, sl.quantite, sl.prix_achat, sl.date_achat, sl.date_achat_iso);
+        return;
+    }
+    // Sinon construire un select et l'afficher dans un dialog simple
+    let html = `<div style="color:#000;">Choisir l'entrée à vendre pour <strong>${ticker}</strong> :</div>`;
+    html += `<select id="selEntreeVente" class="form-select mt-2">`;
+    pos.sous_lignes.forEach(sl => {
+        html += `<option value="${sl.id}" data-q="${sl.quantite}" data-p="${sl.prix_achat}" data-d="${sl.date_achat}" data-di="${sl.date_achat_iso}">`;
+        html += `${sl.date_achat} — ${sl.quantite} titres @ ${formatNumber(sl.prix_achat)} FCFA</option>`;
+    });
+    html += `</select>`;
 
-    const totalValeur = repartitionData.values.reduce((a, b) => a + b, 0);
-    document.getElementById('totalValeur').textContent = formatNumber(totalValeur);
-
-    // Calculer P&L total et frais total depuis les données
-    let totalPnl = 0;
-    let totalFrais = 0;
-    {% for pos in positions_groupees %}
-    totalPnl += {{ pos.pnl }};
-    totalFrais += {{ pos.frais_total }};
-    {% endfor %}
-
-    const pnlEl = document.getElementById('totalPnl');
-    pnlEl.textContent = (totalPnl >= 0 ? '+' : '') + formatNumber(totalPnl);
-    pnlEl.className = totalPnl >= 0 ? 'text-success' : 'text-danger';
-
-    document.getElementById('totalFrais').textContent = formatNumber(totalFrais);
+    const wrap = document.createElement('div');
+    wrap.className = 'modal fade';
+    wrap.tabIndex = -1;
+    wrap.innerHTML = `<div class="modal-dialog"><div class="modal-content bg-dark">
+        <div class="modal-header border-secondary"><h5 class="modal-title">Vendre une entrée</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">${html}</div>
+        <div class="modal-footer border-secondary">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button class="btn btn-warning" id="btnValiderSelEntree">Continuer</button>
+        </div></div></div>`;
+    document.body.appendChild(wrap);
+    const modal = new bootstrap.Modal(wrap);
+    wrap.querySelector('#btnValiderSelEntree').addEventListener('click', () => {
+        const sel = wrap.querySelector('#selEntreeVente');
+        const opt = sel.options[sel.selectedIndex];
+        modal.hide();
+        ouvrirModalVente(parseInt(sel.value), ticker, parseInt(opt.dataset.q),
+                         parseFloat(opt.dataset.p), opt.dataset.d, opt.dataset.di);
+    });
+    wrap.addEventListener('hidden.bs.modal', () => wrap.remove());
+    modal.show();
 }
 
 // Initialiser les graphiques
 document.addEventListener('DOMContentLoaded', function() {
-    // Calculer les totaux
-    calculerTotaux();
-
     // Graphique répartition
     if (repartitionData && document.getElementById('chartRepartition')) {
         const ctx = document.getElementById('chartRepartition').getContext('2d');
@@ -844,8 +1163,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Graphique benchmark
-    if (benchmarkData && document.getElementById('chartBenchmark')) {
+    // Graphique benchmark — init différée car onglet caché au chargement
+    let benchmarkChartInit = false;
+    function initBenchmarkChart() {
+        if (benchmarkChartInit) return;
+        if (!benchmarkData || !document.getElementById('chartBenchmark')) return;
+        benchmarkChartInit = true;
+        const labelEl = document.getElementById('benchLabel');
+        const benchLabel = benchmarkData.indice_nom || benchmarkData.indice_ticker || 'Indice';
+        if (labelEl) labelEl.textContent = benchLabel;
         const ctx = document.getElementById('chartBenchmark').getContext('2d');
         new Chart(ctx, {
             type: 'line',
@@ -862,7 +1188,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         pointRadius: 0
                     },
                     {
-                        label: 'BRVM Composite',
+                        label: benchLabel,
                         data: benchmarkData.brvm,
                         borderColor: '#6366f1',
                         backgroundColor: 'transparent',
@@ -921,7 +1247,211 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>`;
         }
     }
+
+    // Initialiser le graphique benchmark quand l'onglet devient visible
+    const benchTabBtn = document.getElementById('tab-bench-tab');
+    if (benchTabBtn) {
+        benchTabBtn.addEventListener('shown.bs.tab', initBenchmarkChart);
+    }
+
+    // Charger les allocations stratégie quand l'onglet devient visible (1re fois)
+    const stratTabBtn = document.getElementById('tab-strat-tab');
+    if (stratTabBtn) {
+        stratTabBtn.addEventListener('shown.bs.tab', chargerStrategies, { once: true });
+    }
 });
+
+// ====== STRATÉGIES — ALLOCATION & BACKTEST ======
+let stratAllocsCache = [];
+
+async function chargerStrategies() {
+    const resp = await fetch('/api/strategies/list/');
+    const data = await resp.json();
+    if (!data.success || !data.allocations.length) {
+        document.getElementById('stratListe').innerHTML =
+            '<div class="alert alert-warning">Aucune allocation HMM trouvée. Lancez d\'abord le pipeline depuis la page Stratégie HMM.</div>';
+        document.getElementById('btAlloc').innerHTML = '<option value="">Aucune allocation disponible</option>';
+        return;
+    }
+    stratAllocsCache = data.allocations;
+    // Liste pour allocation ponctuelle (checkboxes + poids)
+    let html = '<div class="table-responsive"><table class="table table-sm align-middle">';
+    html += '<thead><tr><th></th><th>Date</th><th>Stratégie</th><th class="text-end">N actions</th><th class="text-end">Sharpe</th><th class="text-end">Rdt att.</th><th>Top 3</th><th class="text-end">Poids global (%)</th></tr></thead><tbody>';
+    data.allocations.forEach(a => {
+        const top3 = (a.top_3 || []).map(([t, w]) => `${t} ${(w*100).toFixed(0)}%`).join(', ');
+        html += `<tr>
+            <td><input type="checkbox" class="form-check-input strat-check" value="${a.id}" data-libelle="${a.libelle}" data-date="${a.date}"></td>
+            <td><small>${a.date}</small></td>
+            <td><strong>${a.libelle}</strong> <small class="text-muted">(${a.strategie})</small></td>
+            <td class="text-end">${a.nb_actions}</td>
+            <td class="text-end">${a.sharpe_attendu}</td>
+            <td class="text-end">${a.rendement_attendu_pct}%</td>
+            <td><small class="text-muted">${top3}</small></td>
+            <td class="text-end"><input type="number" class="form-control form-control-sm strat-poids" data-id="${a.id}" value="100" min="0" max="100" step="5" style="width:80px;display:inline-block"></td>
+        </tr>`;
+    });
+    html += '</tbody></table></div>';
+    html += '<small class="text-muted">Si plusieurs stratégies sont cochées, leurs poids globaux sont normalisés pour sommer à 100%.</small>';
+    document.getElementById('stratListe').innerHTML = html;
+
+    // Select pour backtest
+    const sel = document.getElementById('btAlloc');
+    sel.innerHTML = data.allocations.map(a =>
+        `<option value="${a.id}">${a.date} — ${a.libelle} (${a.nb_actions} actions, Sharpe ${a.sharpe_attendu})</option>`
+    ).join('');
+
+    // Dates par défaut pour le backtest (2 ans avant aujourd'hui à aujourd'hui)
+    const today = new Date();
+    const before = new Date(today.getTime() - 365 * 2 * 24 * 3600 * 1000);
+    document.getElementById('btDateDebut').value = before.toISOString().slice(0, 10);
+    document.getElementById('btDateFin').value = today.toISOString().slice(0, 10);
+    document.getElementById('stratDateAchat').value = today.toISOString().slice(0, 10);
+}
+
+async function appliquerStrategies() {
+    if (!portefeuilleId) {
+        alert("Sélectionnez d'abord un portefeuille.");
+        return;
+    }
+    const checks = document.querySelectorAll('.strat-check:checked');
+    if (checks.length === 0) {
+        alert("Cochez au moins une stratégie.");
+        return;
+    }
+    const dateAchat = document.getElementById('stratDateAchat').value;
+    const montant = parseFloat(document.getElementById('stratMontant').value) || 0;
+    if (!dateAchat || montant <= 0) {
+        alert("Renseignez une date et un montant valides.");
+        return;
+    }
+
+    // Récupérer les poids globaux et normaliser
+    const allocations = [];
+    let sumPoids = 0;
+    checks.forEach(cb => {
+        const id = cb.value;
+        const poidsInput = document.querySelector(`.strat-poids[data-id="${id}"]`);
+        const p = parseFloat(poidsInput.value) || 0;
+        allocations.push({ id: parseInt(id), poids_global_raw: p });
+        sumPoids += p;
+    });
+    if (sumPoids <= 0) { alert("Les poids globaux sont nuls."); return; }
+    allocations.forEach(a => { a.poids_global = a.poids_global_raw / sumPoids; delete a.poids_global_raw; });
+
+    const result = document.getElementById('stratApplyResult');
+    result.innerHTML = '<div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Allocation en cours...</div>';
+
+    const resp = await fetch('/api/strategies/appliquer/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            portefeuille_id: portefeuilleId,
+            allocations: allocations,
+            montant_total: montant,
+            date_achat: dateAchat,
+        }),
+    });
+    const data = await resp.json();
+    if (!data.success) {
+        result.innerHTML = `<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>${data.error}</div>`;
+        return;
+    }
+    let html = `<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i><strong>${data.achats.length} positions créées</strong> — coût total : ${formatNumber(data.cout_engage)} FCFA · liquidité restante : ${formatNumber(data.liquidite_restante)} FCFA</div>`;
+    if (data.achats.length) {
+        html += '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Ticker</th><th class="text-end">Qté</th><th class="text-end">Prix</th><th class="text-end">Montant</th><th class="text-end">Frais</th><th class="text-end">Poids cible</th></tr></thead><tbody>';
+        data.achats.forEach(a => {
+            html += `<tr><td><strong>${a.ticker}</strong></td><td class="text-end">${a.quantite}</td><td class="text-end">${formatNumber(a.prix)}</td><td class="text-end">${formatNumber(a.montant)}</td><td class="text-end text-muted">${formatNumber(a.frais)}</td><td class="text-end">${a.poids_cible}%</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+    }
+    if (data.echecs && data.echecs.length) {
+        html += '<div class="alert alert-warning mt-2"><strong>Échecs partiels :</strong><ul class="mb-0">';
+        data.echecs.forEach(e => { html += `<li>${e.ticker} — ${e.raison}</li>`; });
+        html += '</ul></div>';
+    }
+    html += '<button class="btn btn-sm btn-outline-primary mt-2" onclick="location.reload()"><i class="bi bi-arrow-clockwise me-1"></i>Recharger pour voir les positions</button>';
+    result.innerHTML = html;
+}
+
+let btChart = null;
+async function lancerBacktest() {
+    const allocId = document.getElementById('btAlloc').value;
+    const dateDebut = document.getElementById('btDateDebut').value;
+    const dateFin = document.getElementById('btDateFin').value;
+    const montant = parseFloat(document.getElementById('btMontant').value) || 10000000;
+    if (!allocId || !dateDebut || !dateFin) {
+        alert("Renseignez l'allocation et les dates.");
+        return;
+    }
+    const result = document.getElementById('btResult');
+    result.innerHTML = '<div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Backtest en cours...</div>';
+
+    const url = `/api/strategies/backtest/?alloc_id=${allocId}&date_debut=${dateDebut}&date_fin=${dateFin}&montant=${montant}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!data.success) {
+        result.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        return;
+    }
+
+    const k = data.kpis || {};
+    let kpiHtml = '<div class="row g-2 mb-3">';
+    const kpiList = [
+        ['Rdt total', k.rendement_total_pct, '%', k.rendement_total_pct >= 0],
+        ['Rdt annualisé', k.rendement_annualise_pct, '%', k.rendement_annualise_pct >= 0],
+        ['Volatilité', k.volatilite_annualisee_pct, '%', null],
+        ['Sharpe', k.sharpe, '', k.sharpe >= 1],
+        ['Max DD', k.max_drawdown_pct, '%', false],
+        ['Alpha', k.alpha_annualise_pct, '%', (k.alpha_annualise_pct || 0) >= 0],
+        ['Beta', k.beta, '', null],
+        ['Écart vs ' + data.indice_ticker, k.ecart_vs_indice_pct, '%', (k.ecart_vs_indice_pct || 0) >= 0],
+    ];
+    kpiList.forEach(([label, val, unit, good]) => {
+        if (val === null || val === undefined) { val = '—'; unit = ''; }
+        const cls = good === true ? 'text-success' : good === false ? 'text-danger' : 'text-info';
+        kpiHtml += `<div class="col-md col-6"><div class="kpi-card mini"><div class="kpi-label">${label}</div><div class="kpi-value ${cls}">${val}${unit}</div></div></div>`;
+    });
+    kpiHtml += '</div>';
+
+    let html = `<div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>
+        <strong>${data.alloc.libelle}</strong> (${data.alloc.date}) — ${data.nb_positions} positions ·
+        Coût initial : ${formatNumber(data.cout_initial)} FCFA · Liquidité résiduelle : ${formatNumber(data.liquidite_residuelle)} FCFA
+    </div>`;
+    html += kpiHtml;
+    html += '<div class="card mb-3"><div class="card-header"><i class="bi bi-graph-up me-2"></i>Performance vs ' + data.indice_ticker + ' (base 100)</div><div class="card-body"><div class="chart-container" style="height:380px"><canvas id="chartBacktest"></canvas></div></div></div>';
+    if (data.achats && data.achats.length) {
+        html += '<div class="card"><div class="card-header"><i class="bi bi-list-ul me-2"></i>Positions constituées à ' + dateDebut + '</div><div class="card-body p-0"><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Ticker</th><th class="text-end">Qté</th><th class="text-end">Prix achat</th><th class="text-end">Coût</th><th class="text-end">Poids cible</th></tr></thead><tbody>';
+        data.achats.forEach(a => {
+            html += `<tr><td><strong>${a.ticker}</strong></td><td class="text-end">${a.quantite}</td><td class="text-end">${formatNumber(a.prix_achat)}</td><td class="text-end">${formatNumber(a.cout)}</td><td class="text-end">${a.poids_cible_pct}%</td></tr>`;
+        });
+        html += '</tbody></table></div></div></div>';
+    }
+    result.innerHTML = html;
+
+    // Chart
+    if (btChart) btChart.destroy();
+    const ctx = document.getElementById('chartBacktest').getContext('2d');
+    btChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.dates,
+            datasets: [
+                { label: data.alloc.libelle, data: data.courbe_portefeuille, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 },
+                { label: data.indice_ticker, data: data.courbe_indice, borderColor: '#6366f1', borderDash: [5, 5], backgroundColor: 'transparent', tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: '#9ca3af' } } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af', maxTicksLimit: 10 } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
+            },
+        },
+    });
+}
 </script>
 
 <style>

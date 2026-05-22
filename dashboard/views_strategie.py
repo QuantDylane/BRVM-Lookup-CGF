@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .models import (
@@ -631,6 +632,7 @@ def api_strategie_historique_regimes(request):
     })
 
 
+@csrf_exempt
 @require_http_methods(["POST"])
 def api_strategie_declencher_reallocation(request):
     try:
@@ -639,7 +641,16 @@ def api_strategie_declencher_reallocation(request):
         body = {}
     strategie = body.get("strategie", "SHARPE_HMM")
     nb_top = int(body.get("nb_actions_top", 15))
-    res = executer_pipeline_complet(strategie=strategie, nb_actions_top=nb_top)
+    capital = float(body.get("capital", 10_000_000))
+    lambda_participation = float(body.get("lambda_participation", 0.15))
+    res = executer_pipeline_complet(
+        strategie=strategie,
+        nb_actions_top=nb_top,
+        capital=capital,
+        lambda_participation=lambda_participation,
+    )
+    contraintes = res.get("contraintes_liquidite", {})
+    n_feasible = sum(1 for v in contraintes.values() if v.get("feasible"))
     return JsonResponse({
         "success": True,
         "allocation_id": res["allocation_id"],
@@ -648,6 +659,11 @@ def api_strategie_declencher_reallocation(request):
         "changement": res["changement"],
         "metriques": res["metriques"],
         "n_actions_matchees": res["n_actions_matchees"],
+        "contraintes_liquidite": contraintes,
+        "n_actions_feasible": n_feasible,
+        "n_actions_contraintes": len(contraintes) - n_feasible,
+        "lambda_participation": res["lambda_participation"],
+        "capital_reference": res["capital_reference"],
     })
 
 

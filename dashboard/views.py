@@ -23,6 +23,7 @@ from .models import (
     FondamentauxAnnuel,
     ConseilSikafinance,
     GarchModel,
+    SignalHistorique,
 )
 from .models_strategie import AllocationStrategie
 from .services_verdict import compute_verdict
@@ -5568,7 +5569,13 @@ def api_indicateurs_cache(request, ticker):
 
 
 def api_signal_changements(request, ticker):
-    """Retourne l'historique des changements de signaux pour une action."""
+    """Retourne l'historique des changements de **verdict 4-axes** pour une action.
+
+    Source : SignalHistorique (modalités Sikafinance : Acheter, Renforcer,
+    Conserver, Alléger, Vendre). Cohérent avec le verdict synthétique affiché
+    dans le bandeau de la page. Un "changement" = date où le code diffère de
+    la veille (de la séance précédente disponible).
+    """
     try:
         action = Action.objects.get(ticker=ticker)
     except Action.DoesNotExist:
@@ -5576,30 +5583,43 @@ def api_signal_changements(request, ticker):
 
     limit = int(request.GET.get("limit", 20))
 
-    changements = SignalChangement.objects.filter(
-        action=action
-    ).order_by("-date")[:limit]
+    # On parcourt l'historique ordonné par date croissante, on détecte les
+    # transitions, puis on renvoie les `limit` plus récentes.
+    rows = list(
+        SignalHistorique.objects
+        .filter(action=action)
+        .order_by("date")
+        .values("date", "code", "label", "score")
+    )
 
-    data = []
-    for c in changements:
-        data.append({
-            "id": c.id,
-            "ancien_signal": c.ancien_signal,
-            "nouveau_signal": c.nouveau_signal,
-            "ancien_confiance": c.ancien_confiance,
-            "nouveau_confiance": c.nouveau_confiance,
-            "justification": c.justification[:300],
-            "date": c.date.isoformat(),
-        })
+    transitions = []
+    prev = None
+    for r in rows:
+        if prev is not None and r["code"] != prev["code"]:
+            transitions.append({
+                "ancien_signal": prev["code"],
+                "ancien_label": prev["label"],
+                "nouveau_signal": r["code"],
+                "nouveau_label": r["label"],
+                "ancien_score": prev["score"],
+                "nouveau_score": r["score"],
+                "date": r["date"].isoformat(),
+            })
+        prev = r
 
-    # Aussi le signal actuel
-    dernier_signal = TradingSignal.objects.filter(action=action).first()
+    # Plus récents en premier, limités
+    transitions.reverse()
+    data = transitions[:limit]
+
+    # Signal actuel = dernière ligne SignalHistorique
     signal_actuel = None
-    if dernier_signal:
+    if rows:
+        last = rows[-1]
         signal_actuel = {
-            "signal": dernier_signal.signal,
-            "confiance": dernier_signal.confiance,
-            "date": dernier_signal.date_generation.isoformat(),
+            "signal": last["code"],
+            "label": last["label"],
+            "score": last["score"],
+            "date": last["date"].isoformat(),
         }
 
     return JsonResponse({
@@ -5607,4 +5627,5 @@ def api_signal_changements(request, ticker):
         "signal_actuel": signal_actuel,
         "changements": data,
         "total": len(data),
+        "total_transitions": len(transitions),
     })

@@ -69,3 +69,35 @@ def selectionner_top_n(scores: pd.DataFrame, n: int = 15) -> pd.DataFrame:
     if s > 0:
         top["poids"] = top["poids"] / s
     return top
+
+
+def appliquer_contraintes_liquidite(
+    scores: pd.DataFrame,
+    adv: pd.Series,
+    capital: float,
+    lambda_participation: float = 0.15,
+    w_max_concentration: float = 0.10,
+) -> pd.DataFrame:
+    """Clip les poids selon min(w_max_concentration, λ×ADV_i/capital) puis renormalise.
+
+    Paramètres
+    ----------
+    scores              : résultat de selectionner_top_n(), colonnes score/poids/rang
+    adv                 : volume moyen 20j par action en FCFA (index = ticker)
+    capital             : capital de référence en FCFA
+    lambda_participation: taux de participation max (Almgren-Chriss, défaut 15 %)
+    w_max_concentration : plafond de concentration par action (défaut 10 %)
+
+    Colonnes ajoutées : adv, w_max, feasible, poids_contraint
+    """
+    df = scores.copy()
+    df["adv"] = adv.reindex(df.index).fillna(0.0)
+    # w_max_adv = λ × ADV / capital, plafonné à w_max_concentration
+    w_max_adv = (lambda_participation * df["adv"] / capital).clip(upper=w_max_concentration)
+    # Si ADV inconnu, appliquer seulement le plafond de concentration
+    df["w_max"] = w_max_adv.where(df["adv"] > 0, other=float(w_max_concentration))
+    df["feasible"] = df["poids"] <= df["w_max"]
+    df["poids_contraint"] = df["poids"].clip(upper=df["w_max"])
+    total = df["poids_contraint"].sum()
+    df["poids_contraint"] = df["poids_contraint"] / total if total > 0 else df["poids_contraint"]
+    return df

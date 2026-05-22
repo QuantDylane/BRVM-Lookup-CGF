@@ -1378,9 +1378,12 @@
 
         </div><!-- /tab-content familles -->
 
-        <!-- Changements de signal (conservé) -->
+        <!-- Changements du verdict synthétique 4-axes (issus de SignalHistorique) -->
         <div class="card mt-3 mb-3">
-            <div class="card-header"><i class="bi bi-arrow-left-right me-2"></i>Changements de signal</div>
+            <div class="card-header">
+                <i class="bi bi-arrow-left-right me-2"></i>Changements du verdict synthétique
+                <span class="text-muted small ms-2">— modalités Sikafinance, 20 plus récents</span>
+            </div>
             <div class="card-body p-0" id="signalChangementsBody">
                 <div class="text-muted small text-center py-3">Chargement…</div>
             </div>
@@ -2406,29 +2409,44 @@ function renderSignalChangements(data) {
         return;
     }
 
-    const arrowColors = {
-        'ACHAT': 'text-success',
-        'VENTE': 'text-danger',
-        'NEUTRE': 'text-muted',
+    // Couleurs alignées sur services_verdict.py (modalités Sikafinance)
+    const codeColors = {
+        'ACHETER':   { bg: 'rgba(16, 185, 129, 0.15)',  color: '#10B981' },
+        'RENFORCER': { bg: 'rgba(52, 211, 153, 0.15)',  color: '#34D399' },
+        'CONSERVER': { bg: 'rgba(156, 163, 175, 0.15)', color: '#6B7280' },
+        'ALLEGER':   { bg: 'rgba(245, 158, 11, 0.15)',  color: '#F59E0B' },
+        'VENDRE':    { bg: 'rgba(239, 68, 68, 0.15)',   color: '#EF4444' },
+        'NA':        { bg: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' },
     };
+    const fmtScore = (s) => (s === null || s === undefined) ? '' : Number(s).toFixed(3);
 
     let html = '';
     for (const c of data.changements) {
-        const date = new Date(c.date).toLocaleString('fr-FR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
-        const oldColor = arrowColors[c.ancien_signal] || 'text-muted';
-        const newColor = arrowColors[c.nouveau_signal] || 'text-muted';
+        const date = new Date(c.date).toLocaleDateString('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric'});
+        const oldS = codeColors[c.ancien_signal] || codeColors['NA'];
+        const newS = codeColors[c.nouveau_signal] || codeColors['NA'];
+        const oldLabel = c.ancien_label || c.ancien_signal;
+        const newLabel = c.nouveau_label || c.nouveau_signal;
+        const oldScore = fmtScore(c.ancien_score);
+        const newScore = fmtScore(c.nouveau_score);
 
         html += `
         <div class="d-flex align-items-center gap-2 px-3 py-2" style="border-bottom: 1px solid var(--border-color);">
-            <div class="text-center" style="min-width: 100px;">
-                <span class="badge ${oldColor}" style="background: rgba(100,116,139,0.1);">${c.ancien_signal}</span>
+            <div class="text-center" style="min-width: 220px;">
+                <span class="badge" style="background:${oldS.bg}; color:${oldS.color};">${oldLabel}</span>
                 <i class="bi bi-arrow-right mx-1"></i>
-                <span class="badge ${newColor}" style="background: rgba(100,116,139,0.1);">${c.nouveau_signal}</span>
+                <span class="badge" style="background:${newS.bg}; color:${newS.color};">${newLabel}</span>
             </div>
-            <div class="flex-grow-1 small">
-                <div class="text-muted">${c.justification ? c.justification.substring(0, 80) + '...' : ''}</div>
+            <div class="flex-grow-1 small text-muted">
+                score ${oldScore} → ${newScore}
             </div>
             <div class="text-muted small text-nowrap">${date}</div>
+        </div>`;
+    }
+
+    if (data.total_transitions !== undefined) {
+        html += `<div class="text-muted small text-center py-2" style="border-top: 1px solid var(--border-color);">
+            ${data.changements.length} affichés sur ${data.total_transitions} transitions au total
         </div>`;
     }
 

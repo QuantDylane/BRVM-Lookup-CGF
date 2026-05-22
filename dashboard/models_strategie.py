@@ -247,6 +247,18 @@ class AllocationStrategie(models.Model):
     rendement_attendu = models.FloatField(null=True, blank=True)
     volatilite_attendue = models.FloatField(null=True, blank=True)
     sharpe_attendu = models.FloatField(null=True, blank=True)
+    lambda_participation = models.FloatField(
+        default=0.15,
+        help_text="Taux de participation max (fraction du volume journalier, ex: 0.15 = 15%)",
+    )
+    capital_reference = models.FloatField(
+        null=True, blank=True,
+        help_text="Capital de référence en FCFA utilisé pour le calcul des contraintes ADV",
+    )
+    contraintes_liquidite = models.JSONField(
+        null=True, blank=True,
+        help_text="Dict {ticker: {adv, w_max, poids_brut, poids_contraint, feasible}}",
+    )
     date_creation = models.DateTimeField(auto_now_add=True)
 
     class Meta:

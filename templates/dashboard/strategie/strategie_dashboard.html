@@ -14,7 +14,7 @@
             </option>
         {% endfor %}
     </select>
-    <button id="btnReallouer" class="btn btn-sm btn-primary">
+    <button id="btnReallouer" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#modalPipeline">
         <i class="bi bi-arrow-clockwise"></i> Lancer le pipeline
     </button>
 </div>
@@ -129,6 +129,37 @@
 
 {% block content %}
 
+<!-- Modal Paramètres Pipeline (placé hors top_actions pour éviter la contrainte CSS du conteneur parent) -->
+<div class="modal fade" id="modalPipeline" tabindex="-1" aria-labelledby="modalPipelineLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalPipelineLabel"><i class="bi bi-sliders me-2"></i>Paramètres du pipeline</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Capital de référence (FCFA)</label>
+          <input type="number" id="inputCapital" class="form-control form-control-sm" value="10000000" min="100000" step="500000">
+          <div class="form-text">Utilisé pour calculer la taille max de chaque position selon le volume journalier.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Taux de participation max λ : <span id="lambdaDisplay">15%</span></label>
+          <input type="range" id="inputLambda" class="form-range" min="0.05" max="0.30" step="0.01" value="0.15">
+          <div class="form-text">Fraction max du volume journalier (ADV-20) allouable par action. Défaut : 15 % (pratique institutionnelle, Almgren-Chriss 2001).</div>
+        </div>
+        <div id="reallouer-status" class="alert d-none mt-2 mb-0 py-2 small"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" id="btnReallouerConfirm" class="btn btn-sm btn-primary">
+          <i class="bi bi-arrow-clockwise me-1"></i>Exécuter
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% if not derniere_alloc %}
 <div class="alert alert-warning d-flex align-items-center gap-3">
     <i class="bi bi-exclamation-triangle fs-3"></i>
@@ -213,6 +244,7 @@
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-poids" role="tab"><i class="bi bi-grid-3x3 me-1"></i>Poids Globaux</a></li>
     <li class="nav-item"><a class="nav-link featured" data-bs-toggle="tab" href="#tab-longonly" role="tab"><i class="bi bi-bag-check-fill me-1"></i>Portefeuille Long-Only</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-historique" role="tab"><i class="bi bi-clock-history me-1"></i>Historique</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-liquidite" role="tab"><i class="bi bi-droplet-half me-1"></i>Liquidité</a></li>
 </ul>
 
 <div class="tab-content">
@@ -1580,11 +1612,102 @@ P(S_t = j | S_{t-1} = i) = A_ij     (matrice de transition)</code></pre>
     </div>
 </div>
 
+<!-- ============================================================ -->
+<!-- ONGLET 9 — LIQUIDITÉ                                          -->
+<!-- ============================================================ -->
+<div class="tab-pane fade" id="tab-liquidite" role="tabpanel">
+
+  {% if derniere_alloc and derniere_alloc.contraintes_liquidite %}
+  {% with cl=derniere_alloc.contraintes_liquidite %}
+
+  <!-- Cartes résumé -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-3">
+      <div class="card text-center" style="background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);">
+        <div class="card-body py-3">
+          <div class="display-6 fw-bold text-success" id="liq-n-feasible">—</div>
+          <div class="small text-muted mt-1">Actions exécutables</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center" style="background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);">
+        <div class="card-body py-3">
+          <div class="display-6 fw-bold text-warning" id="liq-n-contraint">—</div>
+          <div class="small text-muted mt-1">Actions contraintes</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center" style="background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);">
+        <div class="card-body py-3">
+          <div class="display-6 fw-bold">{{ derniere_alloc.lambda_participation|mul:100|floatformat:0 }}%</div>
+          <div class="small text-muted mt-1">Taux participation λ</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center" style="background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);">
+        <div class="card-body py-3">
+          <div class="display-6 fw-bold">{% if derniere_alloc.capital_reference %}{{ derniere_alloc.capital_reference|floatformat:0 }}{% else %}—{% endif %}</div>
+          <div class="small text-muted mt-1">Capital référence (FCFA)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tableau par action -->
+  <div class="card" style="background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-droplet-half me-1"></i><strong>Faisabilité par action</strong>
+      <span class="badge bg-secondary ms-auto">Protocole R2 — Almgren-Chriss (2001)</span>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0" id="liq-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th class="text-end">ADV-20 (FCFA)</th>
+              <th class="text-end">Poids cible brut</th>
+              <th class="text-end">Poids max ADV</th>
+              <th class="text-end">Poids final</th>
+              <th class="text-center">Statut</th>
+            </tr>
+          </thead>
+          <tbody id="liq-tbody">
+            <!-- Rempli par JS depuis les données JSON de l'allocation courante -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer">
+      <small class="text-muted">
+        <strong>Formule :</strong> w<sub>max,i</sub> = min(10 %, λ × ADV<sub>i</sub> / Capital) —
+        <i>Vert</i> : poids cible ≤ poids max (exécutable en 1 séance) ;
+        <i>Orange</i> : poids rogné par la contrainte ADV ;
+        <i>Rouge</i> : ADV insuffisant, action bloquée.<br>
+        <strong>Source :</strong> facteur VOLUME (moyenne 20 j, FCFA) · pipeline <code>executer_pipeline_complet()</code> ·
+        <code>scoring.appliquer_contraintes_liquidite()</code>
+      </small>
+    </div>
+  </div>
+
+  <!-- Données JSON embarquées pour le JS -->
+  {{ derniere_alloc.contraintes_liquidite|json_script:"liq-data" }}
+
+  {% endwith %}
+  {% else %}
+  <div class="alert alert-secondary mt-3">
+    <i class="bi bi-hourglass me-1"></i>Aucune donnée de liquidité disponible — lancez le pipeline avec le paramètre Capital renseigné.
+  </div>
+  {% endif %}
+
+</div>
+
 </div><!-- /tab-content -->
 
 {% endif %}
-
-<div id="reallouer-status" class="d-none alert alert-info mt-3"></div>
 
 {% endblock %}
 
@@ -1652,9 +1775,15 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 {% endif %}
 
-// ---- Bouton réallouer ----
+// ---- Slider lambda : affichage % dynamique ----
+document.getElementById('inputLambda')?.addEventListener('input', function() {
+    const pct = Math.round(parseFloat(this.value) * 100);
+    document.getElementById('lambdaDisplay').textContent = pct + '%';
+});
+
+// ---- Bouton réallouer (confirmation dans le modal) ----
 async function lancerPipeline(strategieCode) {
-    const btn = document.getElementById('btnReallouer');
+    const btn = document.getElementById('btnReallouerConfirm');
     const status = document.getElementById('reallouer-status');
     if (!btn || !status) return;
     btn.disabled = true;
@@ -1663,18 +1792,23 @@ async function lancerPipeline(strategieCode) {
     status.classList.remove('d-none', 'alert-danger', 'alert-success');
     status.classList.add('alert-info');
     status.textContent = 'Exécution du pipeline HMM (' + strategieCode + ') — entraînement + optimisation + scoring...';
+    const capital = parseFloat(document.getElementById('inputCapital')?.value || 10000000);
+    const lambda = parseFloat(document.getElementById('inputLambda')?.value || 0.15);
     try {
         const csrf = document.cookie.split('; ').find(r => r.startsWith('csrftoken='))?.split('=')[1] || '';
         const r = await fetch("{% url 'dashboard:api_strategie_declencher_reallocation' %}", {
             method: 'POST',
             headers: {'Content-Type':'application/json', 'X-CSRFToken':csrf},
-            body: JSON.stringify({strategie: strategieCode, nb_actions_top: 15})
+            body: JSON.stringify({strategie: strategieCode, nb_actions_top: 15, capital: capital, lambda_participation: lambda})
         });
         const data = await r.json();
         if (data.success) {
             status.classList.remove('alert-info'); status.classList.add('alert-success');
-            status.innerHTML = '✓ Allocation #' + data.allocation_id + ' créée (' + strategieCode + '). Rechargement...';
-            setTimeout(() => location.reload(), 1200);
+            const nOk = data.n_actions_feasible || 0;
+            const nKo = data.n_actions_contraintes || 0;
+            status.innerHTML = '✓ Allocation #' + data.allocation_id + ' créée. ' +
+                nOk + ' action(s) exécutable(s), ' + nKo + ' contrainte(s). Rechargement...';
+            setTimeout(() => location.reload(), 1800);
         } else { throw new Error(data.error || 'Erreur inconnue'); }
     } catch (err) {
         status.classList.remove('alert-info'); status.classList.add('alert-danger');
@@ -1684,11 +1818,57 @@ async function lancerPipeline(strategieCode) {
     }
 }
 
-document.getElementById('btnReallouer')?.addEventListener('click', function(e) {
+document.getElementById('btnReallouerConfirm')?.addEventListener('click', function(e) {
     e.preventDefault();
     const code = document.getElementById('selectStrategie')?.value || 'SHARPE_HMM';
     lancerPipeline(code);
 });
+
+// ---- Tableau Liquidité : remplissage depuis JSON embarqué ----
+(function() {
+    const el = document.getElementById('liq-data');
+    if (!el) return;
+    let cl;
+    try { cl = JSON.parse(el.textContent); } catch(e) { return; }
+    const tbody = document.getElementById('liq-tbody');
+    if (!tbody) return;
+    let nFeasible = 0, nContraint = 0;
+    const rows = Object.entries(cl).sort((a, b) => b[1].poids_contraint - a[1].poids_contraint);
+    rows.forEach(([ticker, v]) => {
+        const adv = v.adv > 0 ? v.adv.toLocaleString('fr-FR', {maximumFractionDigits:0}) : '—';
+        const pBrut = (v.poids_brut * 100).toFixed(2) + '%';
+        const pMax = (v.w_max * 100).toFixed(2) + '%';
+        const pFinal = (v.poids_contraint * 100).toFixed(2) + '%';
+        let badge, rowClass;
+        if (v.w_max < 0.001) {
+            badge = '<span class="badge bg-danger">✗ Bloqué</span>';
+            rowClass = 'table-danger';
+            nContraint++;
+        } else if (v.feasible) {
+            badge = '<span class="badge bg-success">✓ Exécutable</span>';
+            rowClass = '';
+            nFeasible++;
+        } else {
+            badge = '<span class="badge bg-warning text-dark">⚠ Contraint</span>';
+            rowClass = 'table-warning';
+            nContraint++;
+        }
+        tbody.insertAdjacentHTML('beforeend',
+            `<tr class="${rowClass}">
+              <td><strong>${ticker}</strong></td>
+              <td class="text-end">${adv}</td>
+              <td class="text-end">${pBrut}</td>
+              <td class="text-end">${pMax}</td>
+              <td class="text-end"><strong>${pFinal}</strong></td>
+              <td class="text-center">${badge}</td>
+            </tr>`
+        );
+    });
+    const elFeasible = document.getElementById('liq-n-feasible');
+    const elContraint = document.getElementById('liq-n-contraint');
+    if (elFeasible) elFeasible.textContent = nFeasible;
+    if (elContraint) elContraint.textContent = nContraint;
+})();
 
 // ---- Boutons "Appliquer" dans l'onglet Comparaison ----
 document.querySelectorAll('.btn-apply-strat').forEach(btn => {

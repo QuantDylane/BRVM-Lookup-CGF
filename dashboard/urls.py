@@ -61,6 +61,11 @@ urlpatterns = [
     path("api/portefeuille/dates/<str:ticker>/", views.api_portefeuille_dates_disponibles, name="api_portefeuille_dates"),
     path("api/portefeuille/prix/<str:ticker>/<str:date>/", views.api_portefeuille_prix, name="api_portefeuille_prix"),
     path("api/portefeuille/vendre/", views.api_portefeuille_vendre, name="api_portefeuille_vendre"),
+    path("api/portefeuille/comparer/", views.api_portefeuille_comparer, name="api_portefeuille_comparer"),
+    path("api/strategies/list/", views.api_strategies_list, name="api_strategies_list"),
+    path("api/strategies/<int:alloc_id>/detail/", views.api_strategie_detail, name="api_strategie_detail"),
+    path("api/strategies/appliquer/", views.api_strategie_appliquer, name="api_strategie_appliquer"),
+    path("api/strategies/backtest/", views.api_strategie_backtest, name="api_strategie_backtest"),
 
     # Indicateurs cachés & Changements de signaux
     path("api/indicateurs-cache/<str:ticker>/", views.api_indicateurs_cache, name="api_indicateurs_cache"),

@@ -455,57 +455,175 @@
     </div>`;
   }
 
-  // ---------- Verdict & jauge ----------
-  function verdictMapping(norm) {
-    if (norm >= 0.6) return { label: 'Achat fort', emoji: '🟢', color: C.bull };
-    if (norm >= 0.2) return { label: 'Achat', emoji: '🟢', color: C.bullLite };
-    if (norm > -0.2) return { label: 'Neutre', emoji: '⚪', color: '#94a3b8' };
-    if (norm > -0.6) return { label: 'Vente', emoji: '🔴', color: C.bearLite };
-    return { label: 'Vente forte', emoji: '🔴', color: C.bear };
+  // ---------- Verdict & jauge (4 axes / 5 modalites Sikafinance) ----------
+  function verdictMapping(score) {
+    if (score == null || isNaN(score)) return { label: 'Indisponible', emoji: '\u2014', color: '#6B7280' };
+    if (score >= 0.50) return { label: 'Acheter', emoji: '\ud83d\udfe2', color: '#10B981' };
+    if (score >= 0.15) return { label: 'Renforcer', emoji: '\ud83d\udfe2', color: '#34D399' };
+    if (score > -0.15) return { label: 'Conserver', emoji: '\u26aa', color: '#9CA3AF' };
+    if (score > -0.50) return { label: 'Alleger', emoji: '\ud83d\udfe0', color: '#F59E0B' };
+    return { label: 'Vendre', emoji: '\ud83d\udd34', color: '#EF4444' };
   }
+  function _clipV(x, lo, hi) { lo = (lo == null ? -1 : lo); hi = (hi == null ? 1 : hi); return Math.max(lo, Math.min(hi, x)); }
+  function _aggV(signals) {
+    const v = signals.filter(s => s != null && !isNaN(s));
+    if (!v.length) return { score: null, n: 0 };
+    return { score: v.reduce((a, b) => a + b, 0) / v.length, n: v.length };
+  }
+  function _axisColor(s) {
+    if (s == null) return '#6B7280';
+    if (s >= 0.50) return '#10B981';
+    if (s >= 0.15) return '#34D399';
+    if (s > -0.15) return '#9CA3AF';
+    if (s > -0.50) return '#F59E0B';
+    return '#EF4444';
+  }
+  function _axisStatus(s) {
+    if (s == null) return 'N/A';
+    if (s >= 0.50) return 'Acheter';
+    if (s >= 0.15) return 'Renforcer';
+    if (s > -0.15) return 'Conserver';
+    if (s > -0.50) return 'Alleger';
+    return 'Vendre';
+  }
+  function _sigSmaCross(s20, s50) {
+    if (s20 == null || s50 == null || s50 === 0) return null;
+    return _clipV((s20 / s50 - 1) / 0.05);
+  }
+  function _sigAdxDi(a, dp, dm) {
+    if (a == null || dp == null || dm == null) return null;
+    const dir = dp > dm ? 1 : (dp < dm ? -1 : 0);
+    return dir * _clipV((a - 20) / 30, 0, 1);
+  }
+  function _sigRsi(r) { return r == null ? null : _clipV((50 - r) / 20); }
+  function _sigMacdHist(h, atrV, lc) {
+    if (h == null) return null;
+    let n;
+    if (atrV != null && atrV > 0) n = Math.abs(h) / (0.5 * atrV);
+    else if (lc != null && lc !== 0) n = Math.abs(h) / (0.005 * lc);
+    else return null;
+    return (h > 0 ? 1 : -1) * _clipV(n, 0, 1);
+  }
+  function _sigBbPctb(lc, up, lo) {
+    if (lc == null || up == null || lo == null || up === lo) return null;
+    const pb = (lc - lo) / (up - lo);
+    return _clipV(2 * (0.5 - pb));
+  }
+  function _sigNatrRegime(serie, lookback) {
+    lookback = lookback || 60;
+    if (!serie || !serie.length) return null;
+    const arr = serie.filter(v => v != null && !isNaN(v));
+    if (arr.length < 10) return null;
+    const cur = arr[arr.length - 1];
+    const slc = arr.length >= lookback ? arr.slice(-lookback) : arr;
+    const sorted = slc.slice().sort((a, b) => a - b);
+    const ref = sorted[Math.floor(sorted.length / 2)];
+    if (!(ref > 0) || !isFinite(cur)) return null;
+    return -_clipV((cur / ref - 1) / 0.5);
+  }
+  function _sigObvSlope(serie, win) {
+    win = win || 10;
+    if (!serie || serie.length < win + 5) return null;
+    const seg = serie.slice(-win);
+    const mx = (win - 1) / 2;
+    const my = seg.reduce((a, b) => a + b, 0) / win;
+    let num = 0, den = 0;
+    for (let i = 0; i < win; i++) { num += (i - mx) * (seg[i] - my); den += (i - mx) * (i - mx); }
+    if (den === 0) return null;
+    const slope = num / den;
+    const refSeg = serie.slice(-win * 3);
+    const ref = refSeg.reduce((a, b) => a + Math.abs(b), 0) / refSeg.length;
+    if (!(ref > 0) || !isFinite(slope)) return null;
+    return _clipV((slope / ref) / 0.05);
+  }
+  function _sigMfi(m) { return m == null ? null : _clipV((50 - m) / 20); }
+  function _natrLocal(highs, lows, closes, period) {
+    period = period || 14;
+    const a = atr(highs, lows, closes, period);
+    return a.map((v, i) => (v != null && closes[i]) ? (v / closes[i]) * 100 : null);
+  }
+  function _fmtScore(s) { return s == null ? '\u2014' : (s >= 0 ? '+' : '') + s.toFixed(2); }
+
   function computeVerdict() {
-    let score = 0, votes = 0;
-    const r = last(rsi(CLO, 14));
-    const cards = [];
-    if (r != null) {
-      votes++;
-      if (r < 30) score++; else if (r > 70) score--;
-      const col = r < 30 ? C.bull : r > 70 ? C.bear : '#94a3b8';
-      const stat = r < 30 ? 'Survendu (haussier)' : r > 70 ? 'Suracheté (baissier)' : 'Neutre';
-      cards.push(signalCard('RSI (14)', r.toFixed(1), stat, col));
-    }
-    const m = macd(CLO);
-    const mv = last(m.macd), msig = last(m.signal);
-    if (mv != null && msig != null) {
-      votes++;
-      if (mv > msig) score++; else if (mv < msig) score--;
-      const col = mv > msig ? C.bull : mv < msig ? C.bear : '#94a3b8';
-      const stat = mv > msig ? 'MACD > Signal' : 'MACD < Signal';
-      cards.push(signalCard('MACD', mv.toFixed(2), stat, col));
-    }
-    const s20 = last(sma(CLO, 20)), s50 = last(sma(CLO, 50));
-    if (s20 != null && s50 != null) {
-      votes++;
-      if (s20 > s50) score++; else if (s20 < s50) score--;
-      const col = s20 > s50 ? C.bull : s20 < s50 ? C.bear : '#94a3b8';
-      const stat = s20 > s50 ? 'Golden cross' : 'Death cross';
-      cards.push(signalCard('SMA 20 vs 50', `${fmt(s20)} / ${fmt(s50)}`, stat, col));
-    }
     const lc = last(CLO);
-    if (lc != null && s50 != null) {
-      votes++;
-      if (lc > s50) score++; else if (lc < s50) score--;
-      const col = lc > s50 ? C.bull : lc < s50 ? C.bear : '#94a3b8';
-      const stat = lc > s50 ? 'Prix au-dessus' : 'Prix en-dessous';
-      cards.push(signalCard('Px vs SMA50', fmt(lc), stat, col));
-    }
-    const norm = votes ? score / votes : 0;
-    return { score, votes, norm, verdict: verdictMapping(norm), cards };
+    const s20 = last(sma(CLO, 20));
+    const s50 = last(sma(CLO, 50));
+    const adxObj = adxDmi(H, L, CLO, 14);
+    const adxV = last(adxObj.adx);
+    const dpV = last(adxObj.plusDi);
+    const dmV = last(adxObj.minusDi);
+    const rsiV = last(rsi(CLO, 14));
+    const macdObj = macd(CLO);
+    const macdHist = last(macdObj.hist);
+    const atrSer = atr(H, L, CLO, 14);
+    const atrV = last(atrSer);
+    const bb = bbands(CLO, 20, 2);
+    const bbUp = last(bb.up), bbLo = last(bb.lo);
+    const natrSer = _natrLocal(H, L, CLO, 14);
+    const obvSer = obv(CLO, V);
+    const mfiV = last(mfi(H, L, CLO, V, 14));
+
+    const sT1 = _sigSmaCross(s20, s50);
+    const sT2 = _sigAdxDi(adxV, dpV, dmV);
+    const tend = _aggV([sT1, sT2]);
+    const sM1 = _sigRsi(rsiV);
+    const sM2 = _sigMacdHist(macdHist, atrV, lc);
+    const mom = _aggV([sM1, sM2]);
+    const sV1 = _sigBbPctb(lc, bbUp, bbLo);
+    const sV2 = _sigNatrRegime(natrSer);
+    const vol = _aggV([sV1, sV2]);
+    const sU1 = _sigObvSlope(obvSer);
+    const sU2 = _sigMfi(mfiV);
+    const volu = _aggV([sU1, sU2]);
+    const glob = _aggV([tend.score, mom.score, vol.score, volu.score]);
+
+    // Valeurs réelles pour affichage (préférées aux z-scores normalisés)
+    const natrV = last(natrSer);
+    const bbPctB = (lc != null && bbUp != null && bbLo != null && bbUp !== bbLo)
+      ? ((lc - bbLo) / (bbUp - bbLo)) : null;
+    const fv = (x, d) => (x == null || isNaN(x)) ? '\u2014' : Number(x).toFixed(d == null ? 2 : d);
+    const fvPct = (x, d) => (x == null || isNaN(x)) ? '\u2014' : Number(x).toFixed(d == null ? 1 : d) + '%';
+
+    const axisCard = (titre, axe, details) => {
+      const col = _axisColor(axe.score);
+      const status = _axisStatus(axe.score);
+      return '<div class="signal-card" style="border-left-color:' + col + ';">'
+        + '<div class="signal-card-title">' + titre + ' <span class="text-muted small">(' + axe.n + '/2)</span></div>'
+        + '<div class="signal-card-value">' + _fmtScore(axe.score) + '</div>'
+        + '<div class="signal-card-status" style="color:' + col + ';">' + status + '</div>'
+        + '<div class="text-muted" style="font-size:11px;margin-top:4px;line-height:1.5;">' + details + '</div>'
+        + '</div>';
+    };
+    const cards = [
+      axisCard('\ud83d\udcc8 Tendance', tend,
+        'SMA20/50 : ' + fv(s20) + ' / ' + fv(s50)
+        + ' \u00b7 ADX : ' + fv(adxV, 1)
+        + ' (+DI ' + fv(dpV, 1) + ' / -DI ' + fv(dmV, 1) + ')'),
+      axisCard('\ud83c\udfaf Momentum', mom,
+        'RSI(14) : ' + fv(rsiV, 1)
+        + ' \u00b7 MACD hist : ' + fv(macdHist, 3)),
+      axisCard('\ud83c\udf2a\ufe0f Volatilite', vol,
+        'BB %B : ' + fv(bbPctB)
+        + ' \u00b7 NATR(14) : ' + fvPct(natrV)),
+      axisCard('\ud83d\udce6 Volume', volu,
+        'OBV : ' + fv(last(obvSer), 0)
+        + ' \u00b7 MFI(14) : ' + fv(mfiV, 1)),
+    ];
+
+    return {
+      score: glob.score,
+      nAxes: glob.n,
+      scorePct: glob.score == null ? null : Math.round((glob.score + 1) * 50 * 10) / 10,
+      verdict: verdictMapping(glob.score),
+      cards,
+    };
   }
 
   function renderVerdict() {
     const v = computeVerdict();
-    const { verdict, score, votes, norm, cards } = v;
+    const { verdict, score, nAxes, scorePct, cards } = v;
+    const gaugeVal = (score == null || isNaN(score)) ? 0 : score;
+    const pctTxt = scorePct == null ? '\u2014' : scorePct;
 
     // Sticky header
     const sym = D.ticker || '';
@@ -518,45 +636,45 @@
       <div class="tech-sticky-right" style="border-color:${verdict.color};">
         <span class="tech-sticky-emoji">${verdict.emoji}</span>
         <span class="tech-sticky-verdict" style="color:${verdict.color};">${verdict.label}</span>
-        <span class="tech-sticky-score">score ${score >= 0 ? '+' : ''}${score} / ${votes}</span>
+        <span class="tech-sticky-score">score ${pctTxt}/100 \u00b7 ${nAxes}/4 axes</span>
       </div>
     `);
 
-    // Cards
+    // Cards (4 axes)
     setHTML('techVerdictCards', cards.join(''));
 
-    // Gauge
+    // Gauge — bornes Sikafinance: -1 / -0.5 / -0.15 / +0.15 / +0.5 / +1
     const data = [{
       type: 'indicator',
       mode: 'gauge+number',
-      value: norm,
+      value: gaugeVal,
       number: { valueformat: '.2f', font: { color: C.text, size: 28 } },
       gauge: {
         axis: {
           range: [-1, 1],
-          tickvals: [-1, -0.5, 0, 0.5, 1],
-          ticktext: ['Vente forte', 'Vente', 'Neutre', 'Achat', 'Achat fort'],
+          tickvals: [-1, -0.5, -0.15, 0.15, 0.5, 1],
+          ticktext: ['Vendre', 'Alleger', '', '', 'Renforcer', 'Acheter'],
           tickfont: { color: C.muted, size: 9 },
         },
         bar: { color: verdict.color, thickness: 0.25 },
         bgcolor: 'rgba(0,0,0,0)',
         borderwidth: 0,
         steps: [
-          { range: [-1.0, -0.6], color: 'rgba(239,68,68,0.25)' },
-          { range: [-0.6, -0.2], color: 'rgba(245,158,11,0.20)' },
-          { range: [-0.2, 0.2], color: 'rgba(148,163,184,0.15)' },
-          { range: [0.2, 0.6], color: 'rgba(52,211,153,0.20)' },
-          { range: [0.6, 1.0], color: 'rgba(16,185,129,0.30)' },
+          { range: [-1.0, -0.5], color: 'rgba(239,68,68,0.28)' },
+          { range: [-0.5, -0.15], color: 'rgba(245,158,11,0.22)' },
+          { range: [-0.15, 0.15], color: 'rgba(156,163,175,0.18)' },
+          { range: [0.15, 0.5], color: 'rgba(52,211,153,0.22)' },
+          { range: [0.5, 1.0], color: 'rgba(16,185,129,0.30)' },
         ],
-        threshold: { line: { color: verdict.color, width: 4 }, thickness: 0.85, value: norm },
+        threshold: { line: { color: verdict.color, width: 4 }, thickness: 0.85, value: gaugeVal },
       },
-      title: { text: `<b>${verdict.emoji} ${verdict.label}</b>`, font: { color: C.text, size: 14 } },
+      title: { text: `<b>${verdict.emoji} ${verdict.label}</b><br><span style="font-size:11px;color:${C.muted};">${pctTxt}/100 \u00b7 ${nAxes}/4 axes</span>`, font: { color: C.text, size: 14 } },
     }];
     Plotly.newPlot('techVerdictGauge', data, {
       paper_bgcolor: 'rgba(0,0,0,0)',
       font: { color: C.text },
-      margin: { l: 10, r: 10, t: 50, b: 10 },
-      height: 240,
+      margin: { l: 10, r: 10, t: 60, b: 10 },
+      height: 260,
     }, PLOTLY_CFG);
   }
 

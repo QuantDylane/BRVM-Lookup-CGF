@@ -29,7 +29,17 @@
       "Bash(python manage.py check --no-color)",
       "Bash(find \"/c/Users/DYLANE/OneDrive - CGF BOURSE/Bureau/MES PROJETS AVEC CGF GESTION/LOOK UP/LOOK UP BRVM/templates/dashboard\" -name \"*.html\" -exec grep -l \"style=\" {} \\\\;)",
       "Bash(grep -r \"jQuery\\\\|\\\\$\\\\\\(\" \"/c/Users/DYLANE/OneDrive - CGF BOURSE/Bureau/MES PROJETS AVEC CGF GESTION/LOOK UP/LOOK UP BRVM/static/js/\")",
-      "Bash(find \"/c/Users/DYLANE/OneDrive - CGF BOURSE/Bureau/MES PROJETS AVEC CGF GESTION/LOOK UP/LOOK UP BRVM/static/img\" -type f -exec ls -lh {} \\\\;)"
+      "Bash(find \"/c/Users/DYLANE/OneDrive - CGF BOURSE/Bureau/MES PROJETS AVEC CGF GESTION/LOOK UP/LOOK UP BRVM/static/img\" -type f -exec ls -lh {} \\\\;)",
+      "Bash(python manage.py runserver 8765)",
+      "Bash(curl -s -w \"\\\\n\\\\nHTTP: %{http_code} | Time: %{time_total}s\\\\n\" \"http://localhost:8765/dashboard/strategie-hmm/\" -o /tmp/page.html)",
+      "Bash(curl -s -w \"HTTP: %{http_code} | Time: %{time_total}s\\\\n\" \"http://localhost:8765/strategie-hmm/\" -o /tmp/page.html --max-time 30)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill /PID 38448 /F)",
+      "PowerShell(Stop-Process -Id 38448 -Force)",
+      "PowerShell(\"done\")",
+      "mcp__Claude_Preview__preview_start",
+      "PowerShell($resp = Invoke-WebRequest -Uri \"http://localhost:8765/strategie-hmm/\" -TimeoutSec 60 -UseBasicParsing; \"Status: $\\($resp.StatusCode\\) | Size: $\\($resp.RawContentLength\\)\")",
+      "Bash(curl -s -o /tmp/page3.html -w \"HTTP: %{http_code} | Time: %{time_total}s\\\\n\" --max-time 60 \"http://localhost:8765/strategie-hmm/\")"
     ]
   }
 }
