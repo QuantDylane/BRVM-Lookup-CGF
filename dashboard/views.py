@@ -20,6 +20,18 @@ from .models import (
     ScrapingLog, ApiConfig, CommentHistory, TradingSignal,
     Portefeuille, LignePortefeuille,
     IndicateurCache, SignalChangement,
+    FondamentauxAnnuel,
+    ConseilSikafinance,
+    GarchModel,
+)
+from .models_strategie import AllocationStrategie
+from .services_verdict import compute_verdict
+from .services_indicators import (
+    adx as ind_adx,
+    atr as ind_atr,
+    natr as ind_natr,
+    obv as ind_obv,
+    mfi as ind_mfi,
 )
 
 
@@ -723,60 +735,97 @@ def analyse_actions(request):
                     "volumes": [h["volume_titres"] for h in _hist_valid],
                 }
 
-                # Verdict synthétique (4 votes : RSI, MACD hist, SMA20vs50, Px vs SMA50)
-                _votes = 0
-                _score = 0
-                _rsi_v = indicateurs.get("rsi_14")
-                if _rsi_v is not None:
-                    _votes += 1
-                    if _rsi_v < 30:
-                        _score += 1
-                    elif _rsi_v > 70:
-                        _score -= 1
-                _macd_v = indicateurs.get("macd")
-                _macd_sig = indicateurs.get("macd_signal")
-                if _macd_v is not None and _macd_sig is not None:
-                    _votes += 1
-                    if _macd_v > _macd_sig:
-                        _score += 1
-                    elif _macd_v < _macd_sig:
-                        _score -= 1
-                _sma20 = indicateurs.get("sma_20")
-                _sma50 = indicateurs.get("sma_50")
-                if _sma20 is not None and _sma50 is not None:
-                    _votes += 1
-                    if _sma20 > _sma50:
-                        _score += 1
-                    elif _sma20 < _sma50:
-                        _score -= 1
-                _last_close = closes[-1]
-                if _last_close is not None and _sma50 is not None:
-                    _votes += 1
-                    if _last_close > _sma50:
-                        _score += 1
-                    elif _last_close < _sma50:
-                        _score -= 1
+                # ===== Indicateurs additionnels pour le verdict 4 axes =====
+                _hv = _hist_valid
+                highs_arr = np.array(
+                    [h["plus_haut"] if h["plus_haut"] is not None else np.nan for h in _hv],
+                    dtype=float,
+                )
+                lows_arr = np.array(
+                    [h["plus_bas"] if h["plus_bas"] is not None else np.nan for h in _hv],
+                    dtype=float,
+                )
+                closes_arr = np.array(closes, dtype=float)
+                volumes_arr = np.array(
+                    [(h.get("volume_titres") or 0) for h in _hv],
+                    dtype=float,
+                )
 
-                _norm = (_score / _votes) if _votes else 0.0
-                if _norm >= 0.6:
-                    _v_label, _v_emoji, _v_color = "Achat fort", "🟢", "#10B981"
-                elif _norm >= 0.2:
-                    _v_label, _v_emoji, _v_color = "Achat", "🟢", "#34D399"
-                elif _norm > -0.2:
-                    _v_label, _v_emoji, _v_color = "Neutre", "⚪", "#8B7355"
-                elif _norm > -0.6:
-                    _v_label, _v_emoji, _v_color = "Vente", "🔴", "#F87171"
-                else:
-                    _v_label, _v_emoji, _v_color = "Vente forte", "🔴", "#EF4444"
+                # Combler les NaN H/L par le close (rare, défensif)
+                if np.isnan(highs_arr).any():
+                    mask = np.isnan(highs_arr)
+                    highs_arr[mask] = closes_arr[mask]
+                if np.isnan(lows_arr).any():
+                    mask = np.isnan(lows_arr)
+                    lows_arr[mask] = closes_arr[mask]
 
-                indicateurs["verdict"] = {
-                    "label": _v_label,
-                    "emoji": _v_emoji,
-                    "color": _v_color,
-                    "score": _score,
-                    "votes": _votes,
-                    "norm": round(_norm, 3),
-                }
+                adx_val = di_p_val = di_m_val = None
+                atr_val_v = natr_last = obv_last = mfi_last = None
+                natr_list: list = []
+                obv_list: list = []
+
+                if len(closes_arr) >= 30:
+                    try:
+                        adx_s, dip_s, dim_s = ind_adx(highs_arr, lows_arr, closes_arr, 14)
+                        atr_s = ind_atr(highs_arr, lows_arr, closes_arr, 14)
+                        natr_s = ind_natr(highs_arr, lows_arr, closes_arr, 14)
+                        obv_s = ind_obv(closes_arr, volumes_arr)
+                        mfi_s = ind_mfi(highs_arr, lows_arr, closes_arr, volumes_arr, 14)
+
+                        def _lf(arr):
+                            if arr is None or len(arr) == 0:
+                                return None
+                            v = arr[-1]
+                            return float(v) if np.isfinite(v) else None
+
+                        def _lstf(arr):
+                            return [float(v) if np.isfinite(v) else None for v in arr]
+
+                        adx_val = _lf(adx_s)
+                        di_p_val = _lf(dip_s)
+                        di_m_val = _lf(dim_s)
+                        atr_val_v = _lf(atr_s)
+                        natr_last = _lf(natr_s)
+                        obv_last = _lf(obv_s)
+                        mfi_last = _lf(mfi_s)
+                        natr_list = _lstf(natr_s)
+                        obv_list = _lstf(obv_s)
+                    except Exception:
+                        # En cas de pépin numérique, on laisse les sous-signaux à None
+                        pass
+
+                indicateurs["adx_14"] = round(adx_val, 2) if adx_val is not None else None
+                indicateurs["di_plus_14"] = round(di_p_val, 2) if di_p_val is not None else None
+                indicateurs["di_minus_14"] = round(di_m_val, 2) if di_m_val is not None else None
+                indicateurs["atr_14"] = round(atr_val_v, 2) if atr_val_v is not None else None
+                indicateurs["natr_14"] = round(natr_last, 2) if natr_last is not None else None
+                indicateurs["obv"] = round(obv_last, 2) if obv_last is not None else None
+                indicateurs["mfi_14"] = round(mfi_last, 2) if mfi_last is not None else None
+
+                # Série volatilité GARCH (si disponible pour ce ticker)
+                _garch_for_verdict = None
+                _gm_for_verdict = GarchModel.objects.filter(action=selected_action).first()
+                if _gm_for_verdict and _gm_for_verdict.vol_conditionnelle_json:
+                    _garch_for_verdict = _gm_for_verdict.vol_conditionnelle_json
+
+                # ===== Verdict synthétique 4 axes (modalités Sikafinance) =====
+                indicateurs["verdict"] = compute_verdict(
+                    sma20=indicateurs.get("sma_20"),
+                    sma50=indicateurs.get("sma_50"),
+                    adx=adx_val,
+                    di_plus=di_p_val,
+                    di_minus=di_m_val,
+                    rsi_val=indicateurs.get("rsi_14"),
+                    macd_hist=indicateurs.get("macd_hist"),
+                    atr_val=atr_val_v,
+                    last_close=closes[-1],
+                    bb_upper=indicateurs.get("bollinger_up"),
+                    bb_lower=indicateurs.get("bollinger_low"),
+                    natr_series=natr_list,
+                    garch_vol_series=_garch_for_verdict,
+                    obv_series=obv_list,
+                    mfi_val=mfi_last,
+                )
 
                 # Calculer séries RSI (vectorisé O(N))
                 chart_data["rsi"] = compute_rsi_series(closes, 14)
@@ -793,16 +842,131 @@ def analyse_actions(request):
     if selected_action:
         dividendes_a_venir, dividendes_historique = _load_dividendes_for_ticker(selected_action.ticker)
 
+    # Fondamentaux annuels (matrice 5 ans Sikafinance) + métriques dérivées
+    fondamentaux_rows = []
+    fondamentaux_dernier = None
+    fondamentaux_kpis = {}
+    if selected_action:
+        fondamentaux_rows = list(
+            FondamentauxAnnuel.objects
+            .filter(action=selected_action)
+            .order_by("-exercice")
+        )
+        if fondamentaux_rows:
+            fondamentaux_dernier = fondamentaux_rows[0]
+            d = fondamentaux_dernier
+            dernier_cours = indicateurs.get("dernier_cours")
+
+            # Yield basé sur le dernier cours observé (plus fiable que BNPA×PER)
+            yield_div = None
+            if d.dividende and dernier_cours:
+                yield_div = d.dividende / dernier_cours * 100
+
+            # Capi boursière = cours × nombre d'actions
+            capi = None
+            if dernier_cours and selected_action.nombre_actions:
+                capi = dernier_cours * selected_action.nombre_actions
+
+            # Marge nette = RN / CA en %
+            marge_nette = None
+            if d.resultat_net and d.chiffre_affaires:
+                marge_nette = d.resultat_net / d.chiffre_affaires * 100
+
+            # CAGR du CA et du RN sur la fenêtre disponible
+            def _cagr(series):
+                """series ordonnée du plus ancien au plus récent."""
+                vals = [v for v in series if v is not None and v > 0]
+                if len(vals) < 2:
+                    return None
+                n = len(vals) - 1
+                return ((vals[-1] / vals[0]) ** (1.0 / n) - 1) * 100
+
+            asc = list(reversed(fondamentaux_rows))
+            cagr_ca = _cagr([r.chiffre_affaires for r in asc])
+            cagr_rn = _cagr([r.resultat_net for r in asc])
+
+            fondamentaux_kpis = {
+                "exercice": d.exercice,
+                "chiffre_affaires": d.chiffre_affaires,
+                "croissance_ca": d.croissance_ca,
+                "resultat_net": d.resultat_net,
+                "croissance_rn": d.croissance_rn,
+                "marge_nette": marge_nette,
+                "bnpa": d.bnpa,
+                "per": d.per,
+                "dividende": d.dividende,
+                "yield_div": yield_div,
+                "payout": d.payout_ratio,
+                "capi": capi,
+                "cagr_ca": cagr_ca,
+                "cagr_rn": cagr_rn,
+                "nb_exercices": len(fondamentaux_rows),
+            }
+
+    # ===== Modèle GARCH (volatilité conditionnelle action-spécifique) =====
+    garch_model = None
+    if selected_action:
+        garch_model = GarchModel.objects.filter(action=selected_action).first()
+
+    # ===== Conseil Sikafinance (dernier snapshot) + comparaison verdict technique =====
+    conseil_sika = None
+    sika_comparaison = None
+    if selected_action:
+        conseil_sika = (
+            ConseilSikafinance.objects
+            .filter(action=selected_action)
+            .order_by("-date_scrape")
+            .first()
+        )
+        verdict_code = (indicateurs.get("verdict") or {}).get("code")
+        sika_code = conseil_sika.code if conseil_sika else None
+
+        _BULL = {"ACHETER", "RENFORCER"}
+        _BEAR = {"ALLEGER", "VENDRE"}
+        _NEUTRE = {"CONSERVER"}
+        _NA = {None, "NA", "INCONNU"}
+
+        if verdict_code in _NA or sika_code in _NA:
+            statut = "indisponible"
+        elif verdict_code == sika_code:
+            statut = "concordance_exacte"
+        elif (
+            (verdict_code in _BULL and sika_code in _BULL)
+            or (verdict_code in _BEAR and sika_code in _BEAR)
+        ):
+            statut = "concordance_directionnelle"
+        elif (
+            (verdict_code in _BULL and sika_code in _BEAR)
+            or (verdict_code in _BEAR and sika_code in _BULL)
+        ):
+            statut = "divergence_forte"
+        else:
+            statut = "divergence_legere"  # un des deux est CONSERVER
+
+        sika_comparaison = {
+            "statut": statut,
+            "verdict_code": verdict_code,
+            "sika_code": sika_code,
+        }
+
     ctx.update({
         "actions": actions,
         "selected_ticker": selected_ticker,
         "selected_action": selected_action,
         "indicateurs": indicateurs,
+        "conseil_sika": conseil_sika,
+        "sika_comparaison": sika_comparaison,
+        "garch_model": garch_model,
+        "garch_vol_series_json": json.dumps(
+            garch_model.vol_conditionnelle_json if garch_model else []
+        ),
         "date_range": date_range,
         "chart_data": json.dumps(chart_data, default=str),
         "historiques_recent": historiques[-10:][::-1] if historiques else [],
         "dividendes_a_venir": dividendes_a_venir,
         "dividendes_historique": dividendes_historique,
+        "fondamentaux_rows": fondamentaux_rows,
+        "fondamentaux_kpis": fondamentaux_kpis,
         "actions_perf": actions_perf,
         "actions_secteurs": actions_secteurs,
         "actions_series_json": json.dumps(
@@ -4427,13 +4591,17 @@ def simulation_portefeuille(request):
     ctx = get_context_base(request)
     portefeuilles = Portefeuille.objects.all()
     actions = Action.objects.all().order_by("ticker")
+    indices_dispos = list(Indice.objects.all().order_by("ticker").values("ticker", "nom"))
 
     # Portefeuille sélectionné
     pf_id = request.GET.get("portefeuille")
+    indice_benchmark = request.GET.get("indice")  # ticker indice pour benchmark
     portefeuille = None
     positions_groupees = []
     repartition_data = None
     benchmark_data = None
+    kpis = None
+    totaux = {"valeur": 0, "cout": 0, "pnl": 0, "frais": 0}
 
     if pf_id:
         try:
@@ -4514,8 +4682,28 @@ def simulation_portefeuille(request):
                     "colors": _generate_colors(len(positions_groupees)),
                 }
 
-            # Benchmark vs BRVM Composite
-            benchmark_data = _compute_benchmark(portefeuille)
+            # Agrégats pour la ligne TOTAL (calculés côté serveur, plus fiable que JS)
+            totaux = {
+                "valeur": sum(p["valeur_actuelle"] for p in positions_groupees),
+                "cout": sum(p["cout_total"] for p in positions_groupees),
+                "pnl": sum(p["pnl"] for p in positions_groupees),
+                "frais": sum(p["frais_total"] for p in positions_groupees),
+            }
+
+            # Benchmark vs indice sélectionné (ou BRVMC par défaut)
+            benchmark_data = _compute_benchmark(portefeuille, indice_ticker=indice_benchmark)
+
+            # KPIs étendus si on a une courbe
+            if benchmark_data:
+                kpis = _compute_kpis(
+                    benchmark_data["portefeuille"],
+                    benchmark_data["brvm"],
+                    benchmark_data["dates"],
+                )
+                if kpis:
+                    kpis["ecart_vs_indice_pct"] = round(
+                        kpis["rendement_total_pct"] - kpis["rendement_idx_total_pct"], 2
+                    )
 
         except Portefeuille.DoesNotExist:
             portefeuille = None
@@ -4523,12 +4711,16 @@ def simulation_portefeuille(request):
     ctx.update({
         "portefeuilles": portefeuilles,
         "actions": actions,
+        "indices_dispos": indices_dispos,
+        "indice_benchmark_courant": indice_benchmark or (benchmark_data["indice_ticker"] if benchmark_data else "BRVMC"),
         "portefeuille": portefeuille,
         "positions_groupees": positions_groupees,
-        "positions_json": json.dumps(positions_groupees, ensure_ascii=False),
+        "positions_json": json.dumps(positions_groupees, ensure_ascii=False, default=str),
         "repartition_data": json.dumps(repartition_data, ensure_ascii=False) if repartition_data else "null",
         "benchmark_data": json.dumps(benchmark_data, ensure_ascii=False) if benchmark_data else "null",
         "nb_positions": len(positions_groupees),
+        "totaux": totaux,
+        "kpis": kpis,
     })
     return render(request, "dashboard/simulation_portefeuille.html", ctx)
 
@@ -4543,56 +4735,178 @@ def _generate_colors(n):
     return [palette[i % len(palette)] for i in range(n)]
 
 
-def _compute_benchmark(portefeuille):
-    """Compare la performance du portefeuille vs BRVM Composite depuis la date du premier achat."""
+def _compute_kpis(serie_pf, serie_idx, dates):
+    """Calcule les KPIs étendus à partir des séries base 100.
+
+    serie_pf, serie_idx : listes de float (base 100, longueur égale à dates)
+    dates : liste de strings "YYYY-MM-DD" (longueur égale aux séries)
+
+    Retourne un dict avec rendement, volatilité, sharpe, max drawdown,
+    alpha/beta vs benchmark, win rate, durée.
+    """
+    import math
+    if not serie_pf or len(serie_pf) < 2:
+        return None
+
+    n = len(serie_pf)
+    # Rendements journaliers
+    rets_pf = [(serie_pf[i] / serie_pf[i-1] - 1) for i in range(1, n) if serie_pf[i-1]]
+    rets_idx = [(serie_idx[i] / serie_idx[i-1] - 1) for i in range(1, n) if serie_idx[i-1]] if serie_idx else []
+
+    if not rets_pf:
+        return None
+
+    # Rendement total
+    rendement_total = serie_pf[-1] / serie_pf[0] - 1 if serie_pf[0] else 0
+    rendement_idx_total = (serie_idx[-1] / serie_idx[0] - 1) if (serie_idx and serie_idx[0]) else 0
+
+    # Annualisation (252 jours ouvrés)
+    annees = max(n / 252.0, 1/252)
+    try:
+        rendement_annualise = (1 + rendement_total) ** (1 / annees) - 1
+    except Exception:
+        rendement_annualise = rendement_total / annees
+
+    # Volatilité annualisée
+    mean_pf = sum(rets_pf) / len(rets_pf)
+    var_pf = sum((r - mean_pf) ** 2 for r in rets_pf) / max(len(rets_pf) - 1, 1)
+    vol_journaliere = math.sqrt(var_pf)
+    volatilite_annualisee = vol_journaliere * math.sqrt(252)
+
+    # Sharpe (taux sans risque = 0 pour simplifier)
+    sharpe = (mean_pf * 252) / (vol_journaliere * math.sqrt(252)) if vol_journaliere else 0
+
+    # Max drawdown
+    peak = serie_pf[0]
+    max_dd = 0.0
+    for v in serie_pf:
+        if v > peak:
+            peak = v
+        if peak:
+            dd = (v - peak) / peak
+            if dd < max_dd:
+                max_dd = dd
+
+    # Beta et alpha (régression linéaire simple vs indice)
+    beta, alpha = None, None
+    if rets_idx and len(rets_idx) == len(rets_pf):
+        mean_idx = sum(rets_idx) / len(rets_idx)
+        cov = sum((rets_pf[i] - mean_pf) * (rets_idx[i] - mean_idx) for i in range(len(rets_pf))) / max(len(rets_pf) - 1, 1)
+        var_idx = sum((r - mean_idx) ** 2 for r in rets_idx) / max(len(rets_idx) - 1, 1)
+        if var_idx > 0:
+            beta = cov / var_idx
+            # Alpha annualisé : excès de rendement non expliqué par beta
+            try:
+                rdt_idx_annualise = (1 + rendement_idx_total) ** (1 / annees) - 1
+            except Exception:
+                rdt_idx_annualise = rendement_idx_total / annees
+            alpha = rendement_annualise - beta * rdt_idx_annualise
+
+    # Taux de jours positifs
+    jours_positifs = sum(1 for r in rets_pf if r > 0)
+    win_rate = (jours_positifs / len(rets_pf)) * 100 if rets_pf else 0
+
+    return {
+        "rendement_total_pct": round(rendement_total * 100, 2),
+        "rendement_annualise_pct": round(rendement_annualise * 100, 2),
+        "rendement_idx_total_pct": round(rendement_idx_total * 100, 2),
+        "volatilite_annualisee_pct": round(volatilite_annualisee * 100, 2),
+        "sharpe": round(sharpe, 2),
+        "max_drawdown_pct": round(max_dd * 100, 2),
+        "beta": round(beta, 2) if beta is not None else None,
+        "alpha_annualise_pct": round(alpha * 100, 2) if alpha is not None else None,
+        "win_rate_pct": round(win_rate, 1),
+        "nb_jours": n,
+        "date_debut": dates[0] if dates else None,
+        "date_fin": dates[-1] if dates else None,
+    }
+
+
+def _compute_benchmark(portefeuille, indice_ticker=None):
+    """Compare la performance du portefeuille vs un indice depuis la date du premier achat.
+
+    Si ``indice_ticker`` est None, choisit BRVMC en priorité, sinon le premier
+    indice contenant "BRVM" dans son ticker.
+    """
     premiere_ligne = portefeuille.lignes.filter(active=True).order_by("date_achat").first()
     if not premiere_ligne:
         return None
 
     date_debut = premiere_ligne.date_achat
-    brvm_c = Indice.objects.filter(ticker__icontains="BRVM").first()
-    if not brvm_c:
+
+    indice = None
+    if indice_ticker:
+        indice = Indice.objects.filter(ticker=indice_ticker).first()
+    if not indice:
+        indice = Indice.objects.filter(ticker="BRVMC").first()
+    if not indice:
+        indice = Indice.objects.filter(ticker__icontains="BRVM").first()
+    if not indice:
         return None
 
-    # Cours BRVM Composite depuis la date de début
-    hist_brvm = list(HistoriqueIndice.objects.filter(
-        indice=brvm_c, date__gte=date_debut
+    # Cours de l'indice depuis la date de début
+    hist_idx = list(HistoriqueIndice.objects.filter(
+        indice=indice, date__gte=date_debut
     ).order_by("date").values_list("date", "cloture"))
 
-    if not hist_brvm:
+    if not hist_idx:
         return None
 
-    base_brvm = hist_brvm[0][1]
-    if not base_brvm:
+    base_idx = next((c for _, c in hist_idx if c), None)
+    if not base_idx:
         return None
 
-    # Performance BRVM Composite normalisée (base 100)
-    brvm_dates = [h[0].strftime("%Y-%m-%d") for h in hist_brvm]
-    brvm_perf = [round((h[1] / base_brvm) * 100, 2) if h[1] else 100 for h in hist_brvm]
+    idx_dates = [h[0].strftime("%Y-%m-%d") for h in hist_idx]
+    idx_perf = [round((h[1] / base_idx) * 100, 2) if h[1] else 100 for h in hist_idx]
 
-    # Performance portefeuille : on calcule la valeur totale à chaque date
+    # Performance portefeuille : on calcule la valeur totale à chaque date.
+    # IMPORTANT : ligne.date_achat est un objet date — on doit comparer à un date,
+    # pas à une string. On garde donc les dates comme objets pour la boucle.
     lignes_actives = list(portefeuille.lignes.filter(active=True).select_related("action"))
-    pf_perf = []
-    montant_init = portefeuille.montant_initial
 
-    for date_str, _ in hist_brvm:
-        valeur = 0
-        montant_inv = 0
+    # Pré-charger l'historique de chaque action pour éviter N×M requêtes.
+    actions_uniques = {l.action_id: l.action for l in lignes_actives}
+    hist_par_action = {}
+    for action_id, action in actions_uniques.items():
+        rows = list(HistoriqueAction.objects.filter(
+            action=action, date__gte=date_debut
+        ).order_by("date").values_list("date", "cloture"))
+        hist_par_action[action_id] = rows
+
+    def _cours_a_la_date(action_id, ref_date):
+        """Dernier cours connu pour cette action à une date <= ref_date."""
+        rows = hist_par_action.get(action_id) or []
+        dernier = None
+        for d, c in rows:
+            if d > ref_date:
+                break
+            if c:
+                dernier = c
+        return dernier
+
+    pf_perf = []
+    montant_init = portefeuille.montant_initial or 0
+
+    for d_obj, _ in hist_idx:
+        valeur = 0.0
+        montant_inv = 0.0
         for ligne in lignes_actives:
-            if ligne.date_achat <= date_str:
-                cours = HistoriqueAction.objects.filter(
-                    action=ligne.action, date__lte=date_str
-                ).order_by("-date").values_list("cloture", flat=True).first()
+            if ligne.date_achat <= d_obj:
+                cours = _cours_a_la_date(ligne.action_id, d_obj)
                 if cours:
                     valeur += cours * ligne.quantite
-                    montant_inv += ligne.prix_achat * ligne.quantite
+                else:
+                    valeur += ligne.prix_achat * ligne.quantite
+                montant_inv += ligne.prix_achat * ligne.quantite + (ligne.frais or 0)
         liquidite = montant_init - montant_inv
         valeur_totale = liquidite + valeur
-        pf_perf.append(round((valeur_totale / montant_init) * 100, 2))
+        pf_perf.append(round((valeur_totale / montant_init) * 100, 2) if montant_init else 100)
 
     return {
-        "dates": brvm_dates,
-        "brvm": brvm_perf,
+        "dates": idx_dates,
+        "indice_ticker": indice.ticker,
+        "indice_nom": indice.nom or indice.ticker,
+        "brvm": idx_perf,  # garde la clé "brvm" pour compatibilité front
         "portefeuille": pf_perf,
     }
 
@@ -4740,6 +5054,75 @@ def api_portefeuille_prix(request, ticker, date):
     return JsonResponse({"prix": None})
 
 
+def api_portefeuille_comparer(request):
+    """Compare plusieurs portefeuilles : retourne KPIs + courbe base 100 pour chacun.
+
+    Query params: ?ids=1,2,3 (&indice=BRVMC pour l'overlay benchmark)
+    """
+    ids_param = request.GET.get("ids", "")
+    indice_ticker = request.GET.get("indice")
+    try:
+        ids = [int(x) for x in ids_param.split(",") if x.strip()]
+    except ValueError:
+        return JsonResponse({"error": "ids invalides"}, status=400)
+    if not ids:
+        return JsonResponse({"error": "Aucun portefeuille sélectionné"}, status=400)
+
+    portefeuilles_data = []
+    for pf_id in ids:
+        try:
+            pf = Portefeuille.objects.get(id=pf_id)
+        except Portefeuille.DoesNotExist:
+            continue
+        bench = _compute_benchmark(pf, indice_ticker=indice_ticker)
+        if not bench:
+            portefeuilles_data.append({
+                "id": pf.id, "nom": pf.nom, "error": "Pas de positions ou pas d'historique",
+            })
+            continue
+        kpis = _compute_kpis(bench["portefeuille"], bench["brvm"], bench["dates"])
+        portefeuilles_data.append({
+            "id": pf.id,
+            "nom": pf.nom,
+            "dates": bench["dates"],
+            "courbe": bench["portefeuille"],
+            "kpis": kpis,
+        })
+
+    # Indice de référence (commun à tous, on prend celui calculé sur le premier qui a une courbe)
+    indice_ref = None
+    for d in portefeuilles_data:
+        if "courbe" in d:
+            indice_ref = {
+                "dates": d["dates"],
+                "courbe": [],  # rempli ci-dessous
+            }
+            break
+    # On récupère la courbe de l'indice depuis la 1re comparaison réussie
+    if indice_ref:
+        # Recalcul brut via _compute_benchmark sur le 1er portefeuille valable
+        for pf_id in ids:
+            try:
+                pf = Portefeuille.objects.get(id=pf_id)
+            except Portefeuille.DoesNotExist:
+                continue
+            bench = _compute_benchmark(pf, indice_ticker=indice_ticker)
+            if bench:
+                indice_ref = {
+                    "ticker": bench["indice_ticker"],
+                    "nom": bench["indice_nom"],
+                    "dates": bench["dates"],
+                    "courbe": bench["brvm"],
+                }
+                break
+
+    return JsonResponse({
+        "success": True,
+        "portefeuilles": portefeuilles_data,
+        "indice": indice_ref,
+    })
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_portefeuille_vendre(request):
@@ -4812,6 +5195,308 @@ def api_portefeuille_vendre(request):
         return JsonResponse({"error": "Ligne non trouvée"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+# ============================================================
+# Stratégies — Allocation ponctuelle & Backtest
+# ============================================================
+
+# Libellés humains des stratégies HMM
+_LIBELLES_STRATEGIES = {
+    "SHARPE_HMM": "Maximum Sharpe",
+    "DYN_HMM": "Allocation dynamique",
+    "MR_HMM": "Maximum Return",
+    "RP_HMM": "Risk Parity",
+    "MD_HMM": "Maximum Diversification",
+    "MV_HMM": "Minimum Variance",
+}
+
+
+def api_strategies_list(request):
+    """Retourne la liste des allocations stratégie disponibles en BD."""
+    allocs = AllocationStrategie.objects.order_by("-date", "strategie")[:50]
+    data = []
+    for a in allocs:
+        pa = a.poids_actions or {}
+        data.append({
+            "id": a.id,
+            "date": a.date.strftime("%Y-%m-%d"),
+            "strategie": a.strategie,
+            "libelle": _LIBELLES_STRATEGIES.get(a.strategie, a.strategie),
+            "nb_actions": len(pa),
+            "rendement_attendu_pct": round((a.rendement_attendu or 0) * 100, 2),
+            "volatilite_attendue_pct": round((a.volatilite_attendue or 0) * 100, 2),
+            "sharpe_attendu": round(a.sharpe_attendu or 0, 2),
+            "top_3": sorted(pa.items(), key=lambda x: -x[1])[:3],
+        })
+    return JsonResponse({"success": True, "allocations": data})
+
+
+def api_strategie_detail(request, alloc_id):
+    """Détail d'une allocation : poids par ticker."""
+    try:
+        a = AllocationStrategie.objects.get(id=alloc_id)
+    except AllocationStrategie.DoesNotExist:
+        return JsonResponse({"error": "Allocation non trouvée"}, status=404)
+    pa = a.poids_actions or {}
+    return JsonResponse({
+        "success": True,
+        "id": a.id,
+        "date": a.date.strftime("%Y-%m-%d"),
+        "strategie": a.strategie,
+        "libelle": _LIBELLES_STRATEGIES.get(a.strategie, a.strategie),
+        "poids_actions": [
+            {"ticker": t, "poids": p, "poids_pct": round(p * 100, 2)}
+            for t, p in sorted(pa.items(), key=lambda x: -x[1])
+        ],
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_strategie_appliquer(request):
+    """Applique une (ou plusieurs) allocation(s) à un portefeuille existant.
+
+    Body JSON :
+    {
+      portefeuille_id: int,
+      allocations: [{id: int, poids_global: float}, ...],  // poids_global = part du montant
+      montant_total: float,                                 // FCFA à allouer
+      date_achat: "YYYY-MM-DD"
+    }
+
+    Comportement : pour chaque allocation × poids_global, on calcule pour chaque
+    ticker le montant = montant_total × poids_global × poids_action, puis on
+    achète au cours de la date_achat (entier inférieur de titres). Plusieurs
+    allocations sur le même ticker s'additionnent.
+    """
+    try:
+        data = json.loads(request.body)
+        pf_id = data.get("portefeuille_id")
+        allocations = data.get("allocations", [])
+        montant_total = float(data.get("montant_total", 0))
+        date_achat = data.get("date_achat")
+
+        if not pf_id or not allocations or montant_total <= 0 or not date_achat:
+            return JsonResponse({"error": "Paramètres manquants"}, status=400)
+
+        pf = Portefeuille.objects.get(id=pf_id)
+        if montant_total > pf.liquidite:
+            return JsonResponse({
+                "error": f"Liquidité insuffisante. Disponible: {pf.liquidite:,.0f} FCFA, demandé: {montant_total:,.0f}"
+            }, status=400)
+
+        # Agréger les poids cibles {ticker: poids_final}
+        poids_cibles = defaultdict(float)
+        for entry in allocations:
+            alloc = AllocationStrategie.objects.get(id=int(entry["id"]))
+            poids_global = float(entry.get("poids_global", 1.0))
+            for ticker, w in (alloc.poids_actions or {}).items():
+                poids_cibles[ticker] += poids_global * float(w)
+
+        # Acheter chaque ticker
+        achats = []
+        echecs = []
+        cout_engage = 0.0
+        for ticker, poids_final in poids_cibles.items():
+            montant_alloc = montant_total * poids_final
+            if montant_alloc <= 0:
+                continue
+            try:
+                action = Action.objects.get(ticker=ticker)
+            except Action.DoesNotExist:
+                echecs.append({"ticker": ticker, "raison": "Action inconnue"})
+                continue
+            hist = HistoriqueAction.objects.filter(
+                action=action, date=date_achat
+            ).first()
+            if not hist or not hist.cloture:
+                # Fallback : dernier cours <= date_achat
+                hist = HistoriqueAction.objects.filter(
+                    action=action, date__lte=date_achat
+                ).order_by("-date").first()
+            if not hist or not hist.cloture:
+                echecs.append({"ticker": ticker, "raison": "Pas de cours disponible"})
+                continue
+            prix = hist.cloture
+            quantite = int(montant_alloc // prix)
+            if quantite <= 0:
+                echecs.append({"ticker": ticker, "raison": f"Montant alloué insuffisant ({montant_alloc:,.0f} < {prix:,.0f})"})
+                continue
+            montant_reel = prix * quantite
+            frais = montant_reel * (pf.frais_courtage_pct / 100)
+            cout_total = montant_reel + frais
+            if cout_engage + cout_total > pf.liquidite:
+                echecs.append({"ticker": ticker, "raison": "Liquidité épuisée"})
+                continue
+            cout_engage += cout_total
+            LignePortefeuille.objects.create(
+                portefeuille=pf,
+                action=action,
+                quantite=quantite,
+                prix_achat=prix,
+                date_achat=hist.date,
+                frais=frais,
+            )
+            achats.append({
+                "ticker": ticker,
+                "quantite": quantite,
+                "prix": prix,
+                "montant": montant_reel,
+                "frais": frais,
+                "poids_cible": round(poids_final * 100, 2),
+            })
+
+        return JsonResponse({
+            "success": True,
+            "achats": achats,
+            "echecs": echecs,
+            "cout_engage": round(cout_engage, 0),
+            "liquidite_restante": round(pf.liquidite - cout_engage, 0),
+        })
+
+    except Portefeuille.DoesNotExist:
+        return JsonResponse({"error": "Portefeuille non trouvé"}, status=404)
+    except AllocationStrategie.DoesNotExist:
+        return JsonResponse({"error": "Allocation non trouvée"}, status=404)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+
+
+def api_strategie_backtest(request):
+    """Backtest buy-and-hold d'une allocation entre 2 dates.
+
+    Query params:
+      ?alloc_id=<int>&date_debut=YYYY-MM-DD&date_fin=YYYY-MM-DD&montant=<float>
+      &indice=<ticker> (optionnel, défaut BRVMC)
+
+    Retourne la courbe de valeur du portefeuille (base 100) vs indice.
+    """
+    try:
+        alloc_id = int(request.GET.get("alloc_id"))
+        date_debut = request.GET.get("date_debut")
+        date_fin = request.GET.get("date_fin")
+        montant = float(request.GET.get("montant", 10_000_000))
+        indice_ticker = request.GET.get("indice") or "BRVMC"
+        frais_pct = float(request.GET.get("frais_pct", 1.0))
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "Paramètres invalides"}, status=400)
+
+    try:
+        alloc = AllocationStrategie.objects.get(id=alloc_id)
+    except AllocationStrategie.DoesNotExist:
+        return JsonResponse({"error": "Allocation non trouvée"}, status=404)
+
+    poids_actions = alloc.poids_actions or {}
+    if not poids_actions:
+        return JsonResponse({"error": "Cette allocation n'a pas de poids actions"}, status=400)
+
+    # Étape 1 — Construire le portefeuille à date_debut (buy)
+    actions_map = {a.ticker: a for a in Action.objects.filter(ticker__in=poids_actions.keys())}
+
+    positions = []  # list of (action, quantite, prix_achat, frais)
+    cout_initial = 0.0
+    achats_detail = []
+    for ticker, poids in poids_actions.items():
+        action = actions_map.get(ticker)
+        if not action:
+            continue
+        hist = HistoriqueAction.objects.filter(
+            action=action, date__lte=date_debut
+        ).order_by("-date").first()
+        if not hist or not hist.cloture:
+            continue
+        montant_cible = montant * poids
+        qte = int(montant_cible // hist.cloture)
+        if qte <= 0:
+            continue
+        cout_brut = qte * hist.cloture
+        frais = cout_brut * (frais_pct / 100)
+        positions.append((action, qte, hist.cloture, frais))
+        cout_initial += cout_brut + frais
+        achats_detail.append({
+            "ticker": ticker,
+            "quantite": qte,
+            "prix_achat": hist.cloture,
+            "cout": cout_brut,
+            "frais": frais,
+            "poids_cible_pct": round(poids * 100, 2),
+        })
+
+    liquidite_residuelle = montant - cout_initial
+    if not positions:
+        return JsonResponse({"error": "Aucune position constituée (cours indisponibles)"}, status=400)
+
+    # Étape 2 — Récupérer la grille de dates depuis l'indice de référence
+    indice = Indice.objects.filter(ticker=indice_ticker).first()
+    if not indice:
+        indice = Indice.objects.filter(ticker="BRVMC").first()
+    if not indice:
+        return JsonResponse({"error": "Aucun indice de référence trouvé"}, status=400)
+
+    hist_idx = list(HistoriqueIndice.objects.filter(
+        indice=indice, date__gte=date_debut, date__lte=date_fin
+    ).order_by("date").values_list("date", "cloture"))
+    if not hist_idx:
+        return JsonResponse({"error": "Pas d'historique indice sur la période"}, status=400)
+
+    # Étape 3 — Précharger les historiques des actions du portefeuille
+    hist_par_action = {}
+    for action, _, _, _ in positions:
+        rows = list(HistoriqueAction.objects.filter(
+            action=action, date__gte=date_debut, date__lte=date_fin
+        ).order_by("date").values_list("date", "cloture"))
+        hist_par_action[action.id] = rows
+
+    def _cours_a_la_date(action_id, ref_date):
+        rows = hist_par_action.get(action_id) or []
+        dernier = None
+        for d, c in rows:
+            if d > ref_date:
+                break
+            if c:
+                dernier = c
+        return dernier
+
+    # Étape 4 — Courbe de valeur du portefeuille
+    dates = []
+    courbe_pf = []
+    for d_obj, _ in hist_idx:
+        valeur = liquidite_residuelle
+        for action, qte, prix_achat, _frais in positions:
+            cours = _cours_a_la_date(action.id, d_obj) or prix_achat
+            valeur += cours * qte
+        dates.append(d_obj.strftime("%Y-%m-%d"))
+        courbe_pf.append(round((valeur / montant) * 100, 2) if montant else 100)
+
+    base_idx = next((c for _, c in hist_idx if c), None) or 1
+    courbe_idx = [round((c / base_idx) * 100, 2) if c else 100 for _, c in hist_idx]
+
+    kpis = _compute_kpis(courbe_pf, courbe_idx, dates)
+    if kpis:
+        kpis["ecart_vs_indice_pct"] = round(
+            kpis["rendement_total_pct"] - kpis["rendement_idx_total_pct"], 2
+        )
+
+    return JsonResponse({
+        "success": True,
+        "alloc": {
+            "id": alloc.id,
+            "date": alloc.date.strftime("%Y-%m-%d"),
+            "strategie": alloc.strategie,
+            "libelle": _LIBELLES_STRATEGIES.get(alloc.strategie, alloc.strategie),
+        },
+        "dates": dates,
+        "courbe_portefeuille": courbe_pf,
+        "courbe_indice": courbe_idx,
+        "indice_ticker": indice.ticker,
+        "kpis": kpis,
+        "montant_initial": montant,
+        "cout_initial": round(cout_initial, 0),
+        "liquidite_residuelle": round(liquidite_residuelle, 0),
+        "nb_positions": len(positions),
+        "achats": achats_detail,
+    })
 
 
 # ============================================================

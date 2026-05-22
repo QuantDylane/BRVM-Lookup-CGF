@@ -1,0 +1,12 @@
+# Dépendances pour l'entraînement mensuel des modèles GARCH par action.
+# Séparé de requirements-scraping.txt pour ne pas alourdir le pipeline quotidien
+# (arch + scipy + statsmodels = ~80 Mo).
+
+# Django + accès DB
+Django>=4.2,<5.2
+python-dotenv>=1.0
+
+# Estimation GARCH/GJR-GARCH/EGARCH (Kevin Sheppard)
+arch>=6.3
+numpy>=1.24
+pandas>=2.0

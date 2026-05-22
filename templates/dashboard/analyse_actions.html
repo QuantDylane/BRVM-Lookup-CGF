@@ -396,83 +396,303 @@
     <!-- ONGLET 1: Vue d'ensemble -->
     <div class="tab-pane fade show active" id="overview" role="tabpanel">
         
-        <!-- a) Description et Infos -->
-        <div class="row g-3 mb-4">
-            <div class="col-lg-8">
-                <div class="card h-100">
-                    <div class="card-header">
-                        <span class="fw-bold fs-4">{{ selected_action.ticker }}</span>
-                        {% if selected_action.nom %}
-                        <span class="text-muted ms-2">{{ selected_action.nom }}</span>
-                        {% endif %}
+        <!-- a) BANDEAU DE TÊTE : identité + cours mis en avant -->
+        <div class="card mb-3">
+            <div class="card-body py-3">
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-7">
+                        <div class="d-flex align-items-baseline flex-wrap gap-2">
+                            <span class="fw-bold" style="font-size:1.75rem;">{{ selected_action.ticker }}</span>
+                            {% if selected_action.nom %}
+                            <span class="text-muted fs-5">{{ selected_action.nom }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            {% if selected_action.secteur %}
+                            <span class="badge bg-primary-soft text-primary">
+                                <i class="bi bi-diagram-3 me-1"></i>{{ selected_action.secteur }}
+                            </span>
+                            {% endif %}
+                            {% if selected_action.pays %}
+                            <span class="badge bg-secondary-soft text-secondary">
+                                <i class="bi bi-geo-alt me-1"></i>{{ selected_action.pays|pays_label }}
+                            </span>
+                            {% endif %}
+                            {% if selected_action.isin %}
+                            <span class="badge bg-light text-dark border">
+                                <i class="bi bi-upc me-1"></i>ISIN : {{ selected_action.isin }}
+                            </span>
+                            {% endif %}
+                            {% if selected_action.flottant_pct %}
+                            <span class="badge bg-light text-dark border">
+                                Flottant : {{ selected_action.flottant_pct|format_number:1 }}%
+                            </span>
+                            {% endif %}
+                        </div>
                     </div>
-                    <div class="card-body">
-                        {% if selected_action.description %}
-                        <p class="fs-5 lh-lg">{{ selected_action.description }}</p>
-                        {% else %}
-                        <p class="text-muted fs-5">Aucune description disponible pour cette action.</p>
-                        {% endif %}
-                        
-                        <div class="row g-3 mt-3">
-                            <div class="col-6 col-md-4">
-                                <div class="text-muted small">Pays</div>
-                                <div class="fw-bold fs-5">{{ selected_action.pays|pays_label }}</div>
+                    <div class="col-md-5">
+                        <div class="d-flex justify-content-md-end align-items-center gap-4">
+                            <div class="text-end">
+                                <div class="text-muted small">Dernier cours</div>
+                                <div class="fw-bold text-primary" style="font-size:2.3rem; line-height:1;">
+                                    {{ indicateurs.dernier_cours|format_number:0 }}
+                                    <span class="text-muted" style="font-size:1rem;">FCFA</span>
+                                </div>
+                                {% if indicateurs.var_1j is not None %}
+                                <div class="{{ indicateurs.var_1j|color_variation }} fw-bold">
+                                    {{ indicateurs.var_1j|format_pct }} <small class="text-muted">sur 1j</small>
+                                </div>
+                                {% endif %}
                             </div>
-                            <div class="col-6 col-md-4">
-                                <div class="text-muted small">Secteur</div>
-                                <div class="fw-bold fs-5">{{ selected_action.secteur|default:"-" }}</div>
+                            {% if indicateurs.verdict %}
+                            <div class="text-center p-2 rounded" style="background-color: {{ indicateurs.verdict.color }}15; border: 1px solid {{ indicateurs.verdict.color }}55; min-width:110px;">
+                                <div class="text-muted small">Verdict technique</div>
+                                <div class="fw-bold" style="color: {{ indicateurs.verdict.color }};">
+                                    {{ indicateurs.verdict.emoji }} {{ indicateurs.verdict.label }}
+                                </div>
+                                <div class="text-muted small">
+                                    {% if indicateurs.verdict.score_pct is not None %}
+                                        {{ indicateurs.verdict.score_pct }}/100
+                                    {% else %}&mdash;{% endif %}
+                                    &middot; {{ indicateurs.verdict.n_axes_valides }}/4 axes
+                                </div>
                             </div>
-                            <div class="col-6 col-md-4">
-                                <div class="text-muted small">ISIN</div>
-                                <div class="fw-bold fs-5">{{ selected_action.isin|default:"-" }}</div>
+                            {% endif %}
+                            {% if conseil_sika %}
+                            <div class="text-center p-2 rounded" style="min-width:110px; background-color:#0EA5E915; border:1px solid #0EA5E955;">
+                                <div class="text-muted small">Conseil Sikafinance</div>
+                                <div class="fw-bold" style="color:#0EA5E9;">
+                                    {{ conseil_sika.libelle|default:conseil_sika.code }}
+                                </div>
+                                <div class="text-muted small">au {{ conseil_sika.date_scrape|date:"d/m/Y" }}</div>
                             </div>
+                            {% if sika_comparaison %}
+                                {% if sika_comparaison.statut == "concordance_exacte" %}
+                                <span class="badge align-self-center" style="background:#10B981;">Concordance exacte</span>
+                                {% elif sika_comparaison.statut == "concordance_directionnelle" %}
+                                <span class="badge align-self-center" style="background:#34D399;">Concordance directionnelle</span>
+                                {% elif sika_comparaison.statut == "divergence_legere" %}
+                                <span class="badge align-self-center" style="background:#F59E0B;">Divergence légère</span>
+                                {% elif sika_comparaison.statut == "divergence_forte" %}
+                                <span class="badge align-self-center" style="background:#EF4444;">Divergence forte</span>
+                                {% endif %}
+                            {% endif %}
+                            {% endif %}
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- b) STRIP DE KPI : 6 colonnes pleine largeur -->
+        <div class="card mb-3">
+            <div class="card-body py-3">
+                <div class="row g-2 text-center">
+                    <div class="col-6 col-md-2">
+                        <div class="text-muted small">PER</div>
+                        <div class="fw-bold fs-5">{{ fondamentaux_kpis.per|default:selected_action.per|format_number:2|default:"-" }}</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="text-muted small">BNPA</div>
+                        <div class="fw-bold fs-5">{% if fondamentaux_kpis.bnpa %}{{ fondamentaux_kpis.bnpa|format_number:2 }}{% else %}-{% endif %}</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="text-muted small">Rdt dividende</div>
+                        <div class="fw-bold fs-5 text-success">
+                            {% if fondamentaux_kpis.yield_div %}{{ fondamentaux_kpis.yield_div|format_number:2 }}%{% else %}-{% endif %}
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="text-muted small">Payout</div>
+                        <div class="fw-bold fs-5">{% if fondamentaux_kpis.payout %}{{ fondamentaux_kpis.payout|format_number:0 }}%{% else %}-{% endif %}</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="text-muted small">Beta</div>
+                        <div class="fw-bold fs-5">{{ indicateurs.beta|default:"-" }}</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="text-muted small">Range 52s</div>
+                        <div class="fw-semibold">
+                            {{ indicateurs.plus_bas_52s|format_number:0 }}
+                            <span class="text-muted">—</span>
+                            {{ indicateurs.plus_haut_52s|format_number:0 }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- b-bis) VOLATILITÉ CONDITIONNELLE (modèle GARCH action-spécifique) -->
+        {% if garch_model %}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-activity me-2"></i>Volatilité conditionnelle (modèle GARCH par action)</span>
+                {% if garch_model.model_type == "INSUFFISANT" %}
+                    <span class="badge bg-warning text-dark">Observations insuffisantes ({{ garch_model.n_obs|default:0 }})</span>
+                {% elif garch_model.model_type == "FAILED" %}
+                    <span class="badge bg-danger">Échec d'estimation</span>
+                {% else %}
+                    <span class="badge bg-info text-dark">{{ garch_model.get_model_type_display }}</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if garch_model.vol_actuelle_annualisee is not None %}
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-3 text-center">
+                        <div class="text-muted small">σ annualisée actuelle</div>
+                        <div class="fw-bold fs-3" style="color:#7C3AED;">
+                            {{ garch_model.vol_actuelle_annualisee|format_number:1 }}%
+                        </div>
+                        <div class="text-muted small">σ_T × √252</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-muted">Paramètres estimés</div>
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr><td>ω</td><td class="text-end">{{ garch_model.omega|format_number:4|default:"-" }}</td></tr>
+                                <tr><td>α</td><td class="text-end">{{ garch_model.alpha|format_number:4|default:"-" }}</td></tr>
+                                <tr><td>β</td><td class="text-end">{{ garch_model.beta|format_number:4|default:"-" }}</td></tr>
+                                {% if garch_model.gamma is not None %}
+                                <tr><td>γ (levier)</td><td class="text-end">{{ garch_model.gamma|format_number:4 }}</td></tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="small text-muted">Diagnostics</div>
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr><td>Persistance</td><td class="text-end">{{ garch_model.persistence|format_number:3|default:"-" }}</td></tr>
+                                <tr><td>BIC</td><td class="text-end">{{ garch_model.bic|format_number:1|default:"-" }}</td></tr>
+                                <tr><td>Log-L</td><td class="text-end">{{ garch_model.llf|format_number:1|default:"-" }}</td></tr>
+                                <tr><td>n obs</td><td class="text-end">{{ garch_model.n_obs|default:"-" }}</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-md-3">
+                        <canvas id="garchVolChart" height="100"></canvas>
+                        <div class="text-center text-muted small mt-1">σ annualisée — 252 derniers jours</div>
+                    </div>
+                </div>
+                <div class="text-muted small mt-2">
+                    Modèle ré-entraîné le {{ garch_model.fitted_date|date:"d/m/Y" }}.
+                    Sélection par BIC parmi GARCH(1,1), GJR-GARCH(1,1,1), EGARCH(1,1).
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">
+                    {{ garch_model.erreur_message|default:"Pas de volatilité conditionnelle disponible." }}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+        {{ garch_vol_series_json|json_script:"garch-vol-series" }}
+        {% endif %}
+
+        <!-- c) DESCRIPTION + FONDAMENTAUX + DIVIDENDES (3 colonnes responsive) -->
+        <div class="row g-3 mb-4">
+            <!-- Description -->
+            <div class="col-lg-5">
+                <div class="card h-100">
+                    <div class="card-header"><i class="bi bi-building me-2"></i>À propos de l'émetteur</div>
+                    <div class="card-body">
+                        {% if selected_action.description %}
+                        <p class="lh-lg mb-3">{{ selected_action.description }}</p>
+                        {% else %}
+                        <p class="text-muted">Aucune description disponible pour cette action.</p>
+                        {% endif %}
+                        <div class="row g-2 small mt-2 pt-2 border-top">
+                            <div class="col-6">
+                                <div class="text-muted">Première donnée</div>
+                                <div class="fw-semibold">{{ date_range.debut|default:"-" }}</div>
+                            </div>
+                            <div class="col-6">
+                                <div class="text-muted">Dernière donnée</div>
+                                <div class="fw-semibold">{{ date_range.fin|default:"-" }}</div>
+                            </div>
+                            {% if date_range.nb_seances %}
+                            <div class="col-12">
+                                <div class="text-muted">Séances disponibles</div>
+                                <div class="fw-semibold">{{ date_range.nb_seances }}</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fondamentaux : CA / RN / marge / capi / CAGR -->
             <div class="col-lg-4">
                 <div class="card h-100">
-                    <div class="card-header"><i class="bi bi-info-circle me-2"></i>Informations clés</div>
-                    <div class="card-body d-flex flex-column justify-content-center">
-                        <div class="mb-4 text-center">
-                            <div class="text-muted small">Dernier cours</div>
-                            <div class="fw-bold text-primary" style="font-size: 2.5rem;">{{ indicateurs.dernier_cours|format_number:0 }}</div>
-                            <div class="text-muted">FCFA</div>
-                        </div>
-                        <div class="row text-center">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-graph-up-arrow me-2"></i>Fondamentaux</span>
+                        {% if fondamentaux_kpis.exercice %}
+                        <span class="badge bg-secondary-soft text-secondary">Exercice {{ fondamentaux_kpis.exercice }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        {% if fondamentaux_kpis.chiffre_affaires or fondamentaux_kpis.resultat_net %}
+                        <div class="row g-3">
                             <div class="col-6">
-                                <div class="text-muted small">Première date</div>
-                                <div class="fw-bold fs-5">{{ date_range.debut|default:"-" }}</div>
+                                <div class="text-muted small">Chiffre d'affaires</div>
+                                <div class="fw-bold fs-5">
+                                    {% if fondamentaux_kpis.chiffre_affaires %}{{ fondamentaux_kpis.chiffre_affaires|format_number:0 }} <small class="text-muted">M</small>{% else %}-{% endif %}
+                                </div>
+                                {% if fondamentaux_kpis.croissance_ca is not None %}
+                                <div class="{{ fondamentaux_kpis.croissance_ca|color_variation }} small fw-semibold">
+                                    {{ fondamentaux_kpis.croissance_ca|format_pct }} a/a
+                                </div>
+                                {% endif %}
                             </div>
                             <div class="col-6">
-                                <div class="text-muted small">Dernière date</div>
-                                <div class="fw-bold fs-5">{{ date_range.fin|default:"-" }}</div>
+                                <div class="text-muted small">Résultat net</div>
+                                <div class="fw-bold fs-5">
+                                    {% if fondamentaux_kpis.resultat_net %}{{ fondamentaux_kpis.resultat_net|format_number:0 }} <small class="text-muted">M</small>{% else %}-{% endif %}
+                                </div>
+                                {% if fondamentaux_kpis.croissance_rn is not None %}
+                                <div class="{{ fondamentaux_kpis.croissance_rn|color_variation }} small fw-semibold">
+                                    {{ fondamentaux_kpis.croissance_rn|format_pct }} a/a
+                                </div>
+                                {% endif %}
                             </div>
+                            <div class="col-6">
+                                <div class="text-muted small">Marge nette</div>
+                                <div class="fw-bold">
+                                    {% if fondamentaux_kpis.marge_nette is not None %}{{ fondamentaux_kpis.marge_nette|format_number:1 }}%{% else %}-{% endif %}
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="text-muted small">Capi. boursière</div>
+                                <div class="fw-bold">
+                                    {% if fondamentaux_kpis.capi %}{{ fondamentaux_kpis.capi|format_number:0 }} <small class="text-muted">FCFA</small>{% else %}-{% endif %}
+                                </div>
+                            </div>
+                            {% if fondamentaux_kpis.cagr_ca is not None or fondamentaux_kpis.cagr_rn is not None %}
+                            <div class="col-12 pt-2 border-top">
+                                <div class="text-muted small mb-1">CAGR sur {{ fondamentaux_kpis.nb_exercices }} ans</div>
+                                <div class="d-flex justify-content-between small">
+                                    <span>CA : <span class="{{ fondamentaux_kpis.cagr_ca|color_variation }} fw-bold">{% if fondamentaux_kpis.cagr_ca is not None %}{{ fondamentaux_kpis.cagr_ca|format_pct }}{% else %}-{% endif %}</span></span>
+                                    <span>RN : <span class="{{ fondamentaux_kpis.cagr_rn|color_variation }} fw-bold">{% if fondamentaux_kpis.cagr_rn is not None %}{{ fondamentaux_kpis.cagr_rn|format_pct }}{% else %}-{% endif %}</span></span>
+                                </div>
+                            </div>
+                            {% endif %}
                         </div>
-                        <hr>
-                        <div class="row text-center">
-                            <div class="col-4">
-                                <div class="text-muted small">PER</div>
-                                <div class="fw-bold">{{ selected_action.per|format_number:2 }}</div>
-                            </div>
-                            <div class="col-4">
-                                <div class="text-muted small">Beta</div>
-                                <div class="fw-bold">{{ indicateurs.beta|default:"-" }}</div>
-                            </div>
-                            <div class="col-4">
-                                <div class="text-muted small">Flottant</div>
-                                <div class="fw-bold">{% if selected_action.flottant_pct %}{{ selected_action.flottant_pct|format_number:1 }}%{% else %}-{% endif %}</div>
-                            </div>
-                        </div>
+                        {% else %}
+                        <p class="text-muted small mb-0">Aucun fondamental disponible.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
 
-                        {% if dividendes_a_venir or dividendes_historique %}
-                        <hr>
-                        <div class="text-muted small fw-bold mb-2"><i class="bi bi-cash-coin me-1"></i>Dividendes</div>
+            <!-- Dividendes -->
+            <div class="col-lg-3">
+                <div class="card h-100">
+                    <div class="card-header"><i class="bi bi-cash-coin me-2"></i>Dividendes</div>
+                    <div class="card-body">
                         {% if dividendes_a_venir %}
-                        <div class="mb-2">
+                        <div class="mb-3">
                             <div class="text-muted small">Prochain détachement</div>
                             {% for d in dividendes_a_venir %}
-                            <div class="d-flex justify-content-between align-items-center small">
+                            <div class="d-flex justify-content-between align-items-center small mt-1">
                                 <span>{{ d.date|default:"À préciser" }}</span>
                                 <span class="fw-bold">
                                     {{ d.montant|format_number:0 }} FCFA{% if d.rendement %} <span class="text-success">({{ d.rendement|format_number:2 }}%)</span>{% endif %}
@@ -483,7 +703,7 @@
                         {% endif %}
                         {% if dividendes_historique %}
                         <div>
-                            <div class="text-muted small">Historique</div>
+                            <div class="text-muted small mb-1">Historique</div>
                             <table class="table table-sm mb-0 small">
                                 <thead>
                                     <tr><th>Année</th><th class="text-end">Montant</th><th class="text-end">Rdt</th></tr>
@@ -492,7 +712,7 @@
                                     {% for d in dividendes_historique %}
                                     <tr>
                                         <td>{{ d.annee }}</td>
-                                        <td class="text-end">{{ d.montant|format_number:0 }} FCFA</td>
+                                        <td class="text-end">{{ d.montant|format_number:0 }}</td>
                                         <td class="text-end">{% if d.rendement %}{{ d.rendement|format_number:2 }}%{% else %}-{% endif %}</td>
                                     </tr>
                                     {% endfor %}
@@ -500,11 +720,55 @@
                             </table>
                         </div>
                         {% endif %}
+                        {% if not dividendes_a_venir and not dividendes_historique %}
+                        <p class="text-muted small mb-0">Aucun dividende renseigné.</p>
                         {% endif %}
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- a-bis) Historique des fondamentaux (5 ans Sikafinance) -->
+        {% if fondamentaux_rows %}
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-table me-2"></i>Historique fondamental ({{ fondamentaux_rows|length }} exercices)</span>
+                <span class="text-muted small">Source : Sikafinance</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Exercice</th>
+                                <th class="text-end">CA (M FCFA)</th>
+                                <th class="text-end">Croiss. CA</th>
+                                <th class="text-end">RN (M FCFA)</th>
+                                <th class="text-end">Croiss. RN</th>
+                                <th class="text-end">BNPA</th>
+                                <th class="text-end">PER</th>
+                                <th class="text-end">Dividende</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for f in fondamentaux_rows %}
+                            <tr>
+                                <td class="fw-bold">{{ f.exercice }}</td>
+                                <td class="text-end">{% if f.chiffre_affaires %}{{ f.chiffre_affaires|format_number:0 }}{% else %}-{% endif %}</td>
+                                <td class="text-end">{% if f.croissance_ca is not None %}<span class="{{ f.croissance_ca|color_variation }}">{{ f.croissance_ca|format_pct }}</span>{% else %}-{% endif %}</td>
+                                <td class="text-end">{% if f.resultat_net %}{{ f.resultat_net|format_number:0 }}{% else %}-{% endif %}</td>
+                                <td class="text-end">{% if f.croissance_rn is not None %}<span class="{{ f.croissance_rn|color_variation }}">{{ f.croissance_rn|format_pct }}</span>{% else %}-{% endif %}</td>
+                                <td class="text-end">{% if f.bnpa %}{{ f.bnpa|format_number:2 }}{% else %}-{% endif %}</td>
+                                <td class="text-end">{% if f.per %}{{ f.per|format_number:2 }}{% else %}-{% endif %}</td>
+                                <td class="text-end">{% if f.dividende %}{{ f.dividende|format_number:2 }}{% else %}-{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- b) Performances -->
         <div class="card mb-4">
@@ -795,7 +1059,7 @@
             <div class="tech-sticky-right" style="border-color: {{ indicateurs.verdict.color|default:'#94a3b8' }};">
                 <span class="tech-sticky-emoji">{{ indicateurs.verdict.emoji|default:'⚪' }}</span>
                 <span class="tech-sticky-verdict" style="color: {{ indicateurs.verdict.color|default:'#94a3b8' }};">{{ indicateurs.verdict.label|default:'—' }}</span>
-                <span class="tech-sticky-score">score {{ indicateurs.verdict.score|default:0 }} / {{ indicateurs.verdict.votes|default:0 }}</span>
+                <span class="tech-sticky-score">score {{ indicateurs.verdict.score_pct|default:'—' }}/100 &middot; {{ indicateurs.verdict.n_axes_valides|default:0 }}/4 axes</span>
             </div>
         </div>
 
@@ -2014,6 +2278,41 @@ function renderSignalChangements(data) {
 
 // =========================================
 // (legacy TA-Lib helper JS removed)
+
+// Mini-chart de la volatilité conditionnelle GARCH (σ annualisée %)
+(function() {
+    var node = document.getElementById('garch-vol-series');
+    var canvas = document.getElementById('garchVolChart');
+    if (!node || !canvas || typeof Chart === 'undefined') return;
+    var serie;
+    try { serie = JSON.parse(node.textContent || '[]'); } catch(e) { serie = []; }
+    if (!serie.length) return;
+    var labels = serie.map(function(_, i) { return i + 1; });
+    new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: serie,
+                borderColor: '#7C3AED',
+                backgroundColor: 'rgba(124, 58, 237, 0.15)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 0,
+                borderWidth: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { enabled: true } },
+            scales: {
+                x: { display: false },
+                y: { display: true, ticks: { font: { size: 9 } } },
+            }
+        }
+    });
+})();
 </script>
 <script src="{% static 'js/indicators_tech.js' %}?v={% now 'YmdHis' %}" defer></script>
 {% endif %}

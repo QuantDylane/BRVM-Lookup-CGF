@@ -42,6 +42,42 @@ INDICE_URL = BASE_URL + "/marches/historiques/{ticker}"
 
 REQUEST_DELAY = 0.5
 
+# Mapping des images du conseil Sikafinance vers nos codes normalisés.
+# Sikafinance utilise un thermomètre vertical 5 niveaux ; le fichier s'appelle
+# `bf_Nb.png` où N est la position du curseur **depuis le haut** :
+#   1 = Vendre (tout en haut), 2 = Alléger, 3 = Conserver,
+#   4 = Renforcer, 5 = Acheter (tout en bas)
+# Vérifié sur SIVC.ci (bf_4b.png → curseur sur Renforcer).
+CONSEIL_IMAGE_TO_CODE = {
+    "bf_1b": "VENDRE",
+    "bf_2b": "ALLEGER",
+    "bf_3b": "CONSERVER",
+    "bf_4b": "RENFORCER",
+    "bf_5b": "ACHETER",
+}
+
+CONSEIL_CODE_TO_LIBELLE = {
+    "ACHETER": "Acheter",
+    "RENFORCER": "Renforcer",
+    "CONSERVER": "Conserver",
+    "ALLEGER": "Alléger",
+    "VENDRE": "Vendre",
+    "INCONNU": "Inconnu",
+}
+
+
+def map_conseil_image_to_code(image_nom: str | None) -> str:
+    """Normalise un nom de fichier image Sikafinance en code interne.
+
+    Accepte 'acheter.gif', 'ACHETER.GIF', 'renforcer.png', etc.
+    Retourne 'INCONNU' si non reconnu (ou nom vide).
+    """
+    if not image_nom:
+        return "INCONNU"
+    stem = str(image_nom).rsplit("/", 1)[-1].rsplit(".", 1)[0].strip().lower()
+    return CONSEIL_IMAGE_TO_CODE.get(stem, "INCONNU")
+
+
 OUTPUT_DIR = Path(__file__).parent / "data"
 SOCIETE_DIR = OUTPUT_DIR / "societes"
 INDICES_DIR = OUTPUT_DIR / "indices"
@@ -285,6 +321,12 @@ def scrape_conseil(session: requests.Session, ticker: str) -> dict:
         warn = block.find("p", class_="f11")
         if warn:
             result["Conseil_Avertissement"] = warn.get_text(" ", strip=True)
+
+    # Normalisation : image -> code interne + libellé Sikafinance
+    code = map_conseil_image_to_code(result.get("Conseil_Image_Nom"))
+    result["Conseil_Code"] = code
+    result["Conseil_Libelle"] = CONSEIL_CODE_TO_LIBELLE.get(code, "Inconnu")
+    result["Conseil_Source_URL"] = url
 
     return result
 

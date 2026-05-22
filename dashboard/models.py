@@ -387,6 +387,160 @@ class SignalChangement(models.Model):
         return f"{self.action.ticker}: {self.ancien_signal} → {self.nouveau_signal} ({self.date})"
 
 
+class FondamentauxAnnuel(models.Model):
+    """Fondamentaux annuels scrapés depuis Sikafinance (matrice 5 ans).
+
+    Une ligne = (action, exercice). Les montants CA / RN sont stockés
+    tels quels (en millions de FCFA d'après Sikafinance). Les pourcentages
+    de croissance et le BNPA / PER / Dividende sont en valeurs brutes.
+    """
+    action = models.ForeignKey(
+        Action, on_delete=models.CASCADE, related_name="fondamentaux_annuels"
+    )
+    exercice = models.IntegerField(db_index=True, help_text="Année de l'exercice (ex: 2024)")
+
+    chiffre_affaires = models.FloatField(null=True, blank=True, help_text="CA en millions FCFA")
+    croissance_ca = models.FloatField(null=True, blank=True, help_text="Croissance CA en %")
+    resultat_net = models.FloatField(null=True, blank=True, help_text="RN en millions FCFA")
+    croissance_rn = models.FloatField(null=True, blank=True, help_text="Croissance RN en %")
+    bnpa = models.FloatField(null=True, blank=True, help_text="Bénéfice net par action (FCFA)")
+    per = models.FloatField(null=True, blank=True, help_text="Price Earning Ratio")
+    dividende = models.FloatField(null=True, blank=True, help_text="Dividende par action (FCFA)")
+
+    source = models.CharField(max_length=50, default="sikafinance")
+    source_url = models.URLField(blank=True, default="")
+    date_import = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("action", "exercice")]
+        ordering = ["action", "-exercice"]
+        verbose_name = "Fondamental Annuel (scrap)"
+        verbose_name_plural = "Fondamentaux Annuels (scrap)"
+        indexes = [models.Index(fields=["action", "-exercice"])]
+
+    def __str__(self):
+        return f"{self.action.ticker} — {self.exercice}"
+
+    @property
+    def rendement_dividende(self):
+        """Yield brut = dividende / cours estimé via BNPA × PER, en %."""
+        if self.dividende and self.bnpa and self.per:
+            cours = self.bnpa * self.per
+            if cours:
+                return self.dividende / cours * 100
+        return None
+
+    @property
+    def payout_ratio(self):
+        """Taux de distribution = dividende / BNPA, en %."""
+        if self.dividende and self.bnpa:
+            return self.dividende / self.bnpa * 100
+        return None
+
+
+class ConseilSikafinance(models.Model):
+    """Snapshot quotidien du conseil Sikafinance pour une action.
+
+    Sikafinance publie une image (acheter.gif / renforcer.gif / conserver.gif /
+    alleger.gif / vendre.gif) sur /analyses/conseil/{ticker}. On stocke un
+    snapshot par jour pour reconstituer un historique exploitable.
+    """
+    CODE_CHOICES = [
+        ("ACHETER", "Acheter"),
+        ("RENFORCER", "Renforcer"),
+        ("CONSERVER", "Conserver"),
+        ("ALLEGER", "Alléger"),
+        ("VENDRE", "Vendre"),
+        ("INCONNU", "Inconnu"),
+    ]
+
+    action = models.ForeignKey(
+        Action, on_delete=models.CASCADE, related_name="conseils_sika"
+    )
+    date_scrape = models.DateField(db_index=True)
+    code = models.CharField(max_length=12, choices=CODE_CHOICES, default="INCONNU")
+    libelle = models.CharField(max_length=20, blank=True, default="")
+    texte = models.TextField(blank=True, default="")
+    image_nom = models.CharField(max_length=100, blank=True, default="")
+    image_url = models.URLField(max_length=500, blank=True, default="")
+    source_url = models.URLField(max_length=500, blank=True, default="")
+    date_import = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("action", "date_scrape")]
+        ordering = ["-date_scrape"]
+        verbose_name = "Conseil Sikafinance"
+        verbose_name_plural = "Conseils Sikafinance"
+        indexes = [models.Index(fields=["action", "-date_scrape"])]
+
+    def __str__(self):
+        return f"{self.action.ticker} — {self.date_scrape} — {self.code}"
+
+
+class GarchModel(models.Model):
+    """Modèle de volatilité conditionnelle estimé action par action.
+
+    On met en compétition GARCH(1,1), GJR-GARCH(1,1,1) et EGARCH(1,1) ;
+    sélection par BIC (le plus faible gagne). Stocké en upsert par action :
+    une seule ligne par action, écrasée à chaque ré-entraînement mensuel.
+
+    Référence : Hansen & Lunde (2005, JBES) — GARCH(1,1) reste difficile à
+    battre out-of-sample, donc la compétition utile est entre GARCH(1,1) et
+    GJR/EGARCH pour capturer l'asymétrie (effet de levier).
+    """
+    MODEL_CHOICES = [
+        ("GARCH", "GARCH(1,1)"),
+        ("GJR-GARCH", "GJR-GARCH(1,1,1)"),
+        ("EGARCH", "EGARCH(1,1)"),
+        ("INSUFFISANT", "Observations insuffisantes"),
+        ("FAILED", "Échec d'estimation"),
+    ]
+
+    action = models.OneToOneField(
+        Action, on_delete=models.CASCADE, related_name="garch_model"
+    )
+    model_type = models.CharField(max_length=15, choices=MODEL_CHOICES)
+
+    # Ordres
+    p = models.IntegerField(null=True, blank=True)
+    q = models.IntegerField(null=True, blank=True)
+    o = models.IntegerField(null=True, blank=True, help_text="Asymétrie (GJR/EGARCH)")
+
+    # Paramètres
+    omega = models.FloatField(null=True, blank=True)
+    alpha = models.FloatField(null=True, blank=True)
+    beta = models.FloatField(null=True, blank=True)
+    gamma = models.FloatField(null=True, blank=True, help_text="Effet de levier")
+
+    # Diagnostics
+    persistence = models.FloatField(null=True, blank=True, help_text="α+β (ou équivalent)")
+    aic = models.FloatField(null=True, blank=True)
+    bic = models.FloatField(null=True, blank=True)
+    llf = models.FloatField(null=True, blank=True, help_text="Log-likelihood")
+    n_obs = models.IntegerField(null=True, blank=True)
+
+    # Volatilité conditionnelle
+    vol_actuelle_annualisee = models.FloatField(
+        null=True, blank=True,
+        help_text="σ_T × √252 (en %)"
+    )
+    vol_conditionnelle_json = models.JSONField(
+        default=list, blank=True,
+        help_text="Série des 252 derniers σ_t quotidiens"
+    )
+
+    fitted_date = models.DateTimeField(auto_now=True)
+    erreur_message = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        verbose_name = "Modèle GARCH"
+        verbose_name_plural = "Modèles GARCH"
+        ordering = ["action"]
+
+    def __str__(self):
+        return f"{self.action.ticker} — {self.model_type}"
+
+
 # Modèles dédiés à la Stratégie HMM (importés ici pour que Django les détecte
 # sans modifier les tables existantes ci-dessus).
 from .models_strategie import (  # noqa: E402,F401
