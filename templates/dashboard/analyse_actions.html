@@ -390,6 +390,11 @@
             <i class="bi bi-sliders me-1"></i>Indicateurs Techniques
         </button>
     </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="backtest-tab" data-bs-toggle="tab" data-bs-target="#backtesting" type="button" role="tab">
+            <i class="bi bi-clipboard-data me-1"></i>Backtesting
+        </button>
+    </li>
 </ul>
 
 <div class="tab-content" id="actionTabsContent">
@@ -1384,6 +1389,160 @@
         <!-- Configuration legacy supprimée — refonte 2024 -->
         </div>
     <!-- /ONGLET 2 -->
+
+    <!-- ONGLET 3: Backtesting -->
+    <div class="tab-pane fade" id="backtesting" role="tabpanel" aria-labelledby="backtest-tab">
+        {% if not backtest or not backtest.disponible %}
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-clipboard-data fs-1 text-muted"></i>
+                <p class="text-muted mt-3">
+                    {{ backtest.raison|default:"Backtest indisponible. Lance `python manage.py backfill_signals --ticker " }}{{ selected_action.ticker }}{{ backtest.raison|default:"` pour reconstruire les signaux historiques." }}
+                </p>
+            </div>
+        </div>
+        {% else %}
+        <!-- a) Résumé du backtest -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-info-circle me-2"></i>Périmètre du backtest
+            </div>
+            <div class="card-body">
+                <div class="row g-3 text-center">
+                    <div class="col-md-3">
+                        <div class="text-muted small">Période</div>
+                        <div class="fw-bold">{{ backtest.date_debut }} → {{ backtest.date_fin }}</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">Nb signaux</div>
+                        <div class="fw-bold fs-4">{{ backtest.n_signaux }}</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">PnL long-only (sans frais)</div>
+                        <div class="fw-bold fs-4" style="color: {% if backtest.pnl.summary_sans_frais.rdt_total_pct >= 0 %}#10B981{% else %}#EF4444{% endif %};">
+                            {{ backtest.pnl.summary_sans_frais.rdt_total_pct|format_number:1 }}%
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">PnL long-only (frais 100bps)</div>
+                        <div class="fw-bold fs-4" style="color: {% if backtest.pnl.summary_avec_frais.rdt_total_pct >= 0 %}#10B981{% else %}#EF4444{% endif %};">
+                            {{ backtest.pnl.summary_avec_frais.rdt_total_pct|format_number:1 }}%
+                        </div>
+                    </div>
+                </div>
+                <div class="text-muted small mt-3 text-center">
+                    Stratégie long quand verdict ∈ {Acheter, Renforcer}, cash sinon.
+                    Hit rate directionnel : BULL hit si rdt &gt; 0 ; BEAR hit si rdt &lt; 0 ; CONSERVER neutre exclu.
+                </div>
+            </div>
+        </div>
+
+        <!-- b) Métriques par code de verdict -->
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-table me-2"></i>Métriques par code de verdict</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Code</th>
+                                <th class="text-end">N</th>
+                                <th class="text-end">Hit rate 1j</th>
+                                <th class="text-end">Hit rate 5j</th>
+                                <th class="text-end">Hit rate 22j</th>
+                                <th class="text-end">Rdt moy 22j</th>
+                                <th class="text-end">Rdt méd 22j</th>
+                                <th class="text-end">Sharpe ann.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in backtest.metriques %}
+                            <tr>
+                                <td><span class="fw-semibold">{{ m.label }}</span></td>
+                                <td class="text-end">{{ m.n }}</td>
+                                <td class="text-end">{% if m.hit_rate_1j is not None %}{{ m.hit_rate_1j|floatformat:3 }}{% else %}—{% endif %}</td>
+                                <td class="text-end">{% if m.hit_rate_5j is not None %}{{ m.hit_rate_5j|floatformat:3 }}{% else %}—{% endif %}</td>
+                                <td class="text-end">{% if m.hit_rate_22j is not None %}{{ m.hit_rate_22j|floatformat:3 }}{% else %}—{% endif %}</td>
+                                <td class="text-end {% if m.rdt_moyen_22j and m.rdt_moyen_22j > 0 %}text-success{% elif m.rdt_moyen_22j and m.rdt_moyen_22j < 0 %}text-danger{% endif %}">
+                                    {% if m.rdt_moyen_22j is not None %}{{ m.rdt_moyen_22j|floatformat:3 }}{% else %}—{% endif %}
+                                </td>
+                                <td class="text-end">{% if m.rdt_median_22j is not None %}{{ m.rdt_median_22j|floatformat:3 }}{% else %}—{% endif %}</td>
+                                <td class="text-end">{% if m.sharpe_annualise is not None %}{{ m.sharpe_annualise|floatformat:2 }}{% else %}—{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="text-muted small p-2">
+                    Hit rate / rdt en fraction (0.10 = 10%). Sharpe annualisé sur l'horizon 22j.
+                </div>
+            </div>
+        </div>
+
+        <!-- c) Courbe PnL cumulée -->
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-graph-up me-2"></i>Equity curve (1 € initial)</div>
+            <div class="card-body">
+                <canvas id="backtestPnlChart" height="80"></canvas>
+                <div class="row g-2 small text-muted mt-2">
+                    <div class="col-md-6">
+                        Sans frais : equity finale = {{ backtest.pnl.summary_sans_frais.equity_finale|floatformat:3 }},
+                        {{ backtest.pnl.summary_sans_frais.nb_trades }} trades,
+                        Sharpe = {{ backtest.pnl.summary_sans_frais.sharpe_annualise|default_if_none:"—"|floatformat:2 }}
+                    </div>
+                    <div class="col-md-6">
+                        Avec frais 100bps : equity finale = {{ backtest.pnl.summary_avec_frais.equity_finale|floatformat:3 }},
+                        Sharpe = {{ backtest.pnl.summary_avec_frais.sharpe_annualise|default_if_none:"—"|floatformat:2 }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- d) Matrice de confusion technique vs Sikafinance -->
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-grid-3x3 me-2"></i>Matrice de confusion verdict technique vs Sikafinance</div>
+            <div class="card-body">
+                {% if not backtest.confusion_sika %}
+                <p class="text-muted mb-0">
+                    Aucune date commune entre les signaux techniques et les conseils Sikafinance.
+                    Le logging Sika quotidien vient de démarrer — cette matrice se remplira au fil des jours.
+                </p>
+                {% else %}
+                <div class="small text-muted mb-2">
+                    {{ backtest.confusion_sika.n_total }} paires (technique, Sika).
+                    Concordance exacte : {{ backtest.confusion_sika.taux_concordance|floatformat:3 }} ·
+                    Divergence forte (BULL vs BEAR) : {{ backtest.confusion_sika.taux_divergence_forte|floatformat:3 }}
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0 text-center" style="min-width:600px;">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Technique \ Sika</th>
+                                {% for cs in backtest.confusion_sika.codes_sika %}
+                                <th>{{ cs }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ct in backtest.confusion_sika.codes_tech %}
+                            <tr>
+                                <th class="table-light">{{ ct }}</th>
+                                {% for cs in backtest.confusion_sika.codes_sika %}
+                                <td>{{ backtest.confusion_sika.matrice|get_item:ct|get_item:cs }}</td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {{ backtest_pnl_json|json_script:"backtest-pnl-data" }}
+        {% endif %}
+    </div>
+    <!-- /ONGLET 3 -->
+
 </div>
 {% else %}
 <div class="card">
@@ -2278,6 +2437,58 @@ function renderSignalChangements(data) {
 
 // =========================================
 // (legacy TA-Lib helper JS removed)
+
+// Equity curve du backtest (long-only sur ACHETER+RENFORCER)
+(function() {
+    var node = document.getElementById('backtest-pnl-data');
+    var canvas = document.getElementById('backtestPnlChart');
+    if (!node || !canvas || typeof Chart === 'undefined') return;
+    var data;
+    try { data = JSON.parse(node.textContent || '{}'); } catch(e) { return; }
+    if (!data.dates || !data.dates.length) return;
+    new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: data.dates,
+            datasets: [
+                {
+                    label: 'Sans frais',
+                    data: data.sans_frais,
+                    borderColor: '#10B981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    fill: false,
+                    tension: 0.2,
+                    pointRadius: 0,
+                    borderWidth: 2,
+                },
+                {
+                    label: 'Avec 100bps frais/trade',
+                    data: data.avec_frais,
+                    borderColor: '#F59E0B',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    fill: false,
+                    tension: 0.2,
+                    pointRadius: 0,
+                    borderWidth: 2,
+                    borderDash: [4, 4],
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: true, position: 'top' },
+                tooltip: { enabled: true }
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 12, font: { size: 9 } } },
+                y: { title: { display: true, text: 'Equity' } }
+            }
+        }
+    });
+})();
 
 // Mini-chart de la volatilité conditionnelle GARCH (σ annualisée %)
 (function() {

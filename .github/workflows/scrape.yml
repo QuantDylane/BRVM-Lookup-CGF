@@ -83,7 +83,13 @@ jobs:
         run: python manage.py importer_conseils_sikafinance
         continue-on-error: true
 
-      # 7) Commit uniquement db.sqlite3 (plus les CSV de data/)
+      # 7) Backfill incrémental des signaux historiques (verdict 4-axes)
+      #    Idempotent : skip les dates déjà calculées, traite la nouvelle barre du jour.
+      - name: Backfill incrémental des signaux
+        run: python manage.py backfill_signals
+        continue-on-error: true
+
+      # 8) Commit uniquement db.sqlite3 (plus les CSV de data/)
       - name: Commit & push db.sqlite3
         run: |
           git config user.name  "github-actions[bot]"

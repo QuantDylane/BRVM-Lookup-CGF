@@ -26,6 +26,7 @@ from .models import (
 )
 from .models_strategie import AllocationStrategie
 from .services_verdict import compute_verdict
+from .services_backtest import backtest_action
 from .services_indicators import (
     adx as ind_adx,
     atr as ind_atr,
@@ -908,6 +909,11 @@ def analyse_actions(request):
     if selected_action:
         garch_model = GarchModel.objects.filter(action=selected_action).first()
 
+    # ===== Backtest rétrospectif du verdict 4-axes =====
+    backtest = None
+    if selected_action:
+        backtest = backtest_action(selected_action)
+
     # ===== Conseil Sikafinance (dernier snapshot) + comparaison verdict technique =====
     conseil_sika = None
     sika_comparaison = None
@@ -960,6 +966,12 @@ def analyse_actions(request):
         "garch_vol_series_json": json.dumps(
             garch_model.vol_conditionnelle_json if garch_model else []
         ),
+        "backtest": backtest,
+        "backtest_pnl_json": json.dumps({
+            "dates": (backtest or {}).get("pnl", {}).get("dates", []),
+            "sans_frais": (backtest or {}).get("pnl", {}).get("sans_frais", []),
+            "avec_frais": (backtest or {}).get("pnl", {}).get("avec_frais_100bps", []),
+        }, default=str) if backtest and backtest.get("disponible") else "{}",
         "date_range": date_range,
         "chart_data": json.dumps(chart_data, default=str),
         "historiques_recent": historiques[-10:][::-1] if historiques else [],

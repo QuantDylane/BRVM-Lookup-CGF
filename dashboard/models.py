@@ -541,6 +541,40 @@ class GarchModel(models.Model):
         return f"{self.action.ticker} — {self.model_type}"
 
 
+class SignalHistorique(models.Model):
+    """Snapshot rétrospectif du verdict 4-axes pour une action à une date donnée.
+
+    Reconstruit pour chaque jour où ≥252 barres existent en amont, afin
+    d'éviter le look-ahead bias. Cette table sert de base au backtest :
+    croisée avec ``HistoriqueAction``, elle permet de calculer les rendements
+    forward (+1j / +5j / +22j) et les métriques de performance par code de
+    verdict.
+    """
+    action = models.ForeignKey(
+        Action, on_delete=models.CASCADE, related_name="signaux_historiques"
+    )
+    date = models.DateField(db_index=True)
+    code = models.CharField(max_length=12, db_index=True)
+    label = models.CharField(max_length=20, blank=True, default="")
+    score = models.FloatField(null=True, blank=True)
+    n_axes_valides = models.IntegerField(default=0)
+    axes_detail_json = models.JSONField(default=dict, blank=True)
+    date_calcul = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("action", "date")]
+        ordering = ["action", "-date"]
+        verbose_name = "Signal Historique"
+        verbose_name_plural = "Signaux Historiques"
+        indexes = [
+            models.Index(fields=["action", "-date"]),
+            models.Index(fields=["code", "-date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.action.ticker} — {self.date} — {self.code}"
+
+
 # Modèles dédiés à la Stratégie HMM (importés ici pour que Django les détecte
 # sans modifier les tables existantes ci-dessus).
 from .models_strategie import (  # noqa: E402,F401
