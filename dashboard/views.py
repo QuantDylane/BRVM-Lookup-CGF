@@ -2,7 +2,7 @@ import json
 import csv
 import subprocess
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from collections import defaultdict
 
 import numpy as np
@@ -23,13 +23,11 @@ from .models import (
     IndicateurCache, SignalChangement,
     FondamentauxAnnuel,
     ConseilSikafinance,
-    GarchModel,
     SignalHistorique,
 )
 from .models_strategie import AllocationStrategie
 from .services_verdict import compute_verdict
-from .services_backtest import backtest_action
-from .services_garch_forecast import forecast_for_action, to_template_dict as garch_to_tpl
+from .services_backtest import backtest_action, matrice_confusion_vs_sika
 from .services_indicators import (
     adx as ind_adx,
     atr as ind_atr,
@@ -78,6 +76,60 @@ def get_context_base(request, last_date=None):
     derniere_maj = last.strftime("%d/%m/%Y") if last else "N/A"
     alerte_maj = bool(last and (datetime.now().date() - last).days > 2)
     return {"derniere_maj": derniere_maj, "alerte_maj": alerte_maj}
+
+
+def _dividendes_dates_for_ticker(ticker):
+    """Charge les dividendes datés pour un ticker depuis
+    data/dividendes/dividendes.json.
+
+    Renvoie un dict ``{date: montant_par_action_fcfa}`` :
+    - ``a_venir`` : date exacte de détachement (Date_Detachement ISO).
+    - ``historique`` (Div_<année>) : approximation au 30 juin de l'année concernée.
+    Plusieurs entrées tombant sur la même date sont additionnées.
+    """
+    out = {}
+    if not ticker:
+        return out
+    path = settings.BASE_DIR / "data" / "dividendes" / "dividendes.json"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, ValueError):
+        return out
+
+    tk = ticker.strip().lower()
+
+    def _match(item):
+        return str(item.get("Ticker", "")).strip().lower() == tk
+
+    for item in payload.get("a_venir", []) or []:
+        if not _match(item):
+            continue
+        try:
+            d = datetime.strptime(item.get("Date_Detachement") or "", "%Y-%m-%d").date()
+            montant = float(item.get("Montant_FCFA") or 0)
+        except (ValueError, TypeError):
+            continue
+        if montant > 0:
+            out[d] = out.get(d, 0.0) + montant
+
+    for item in payload.get("historique", []) or []:
+        if not _match(item):
+            continue
+        for key, value in item.items():
+            if not key.startswith("Div_"):
+                continue
+            if value in (None, "", "-"):
+                continue
+            try:
+                annee = int(key.split("_", 1)[1])
+                montant = float(str(value).replace(",", "."))
+            except (ValueError, TypeError, IndexError):
+                continue
+            if montant > 0:
+                d = date(annee, 6, 30)
+                out[d] = out.get(d, 0.0) + montant
+    return out
 
 
 def _load_dividendes_for_ticker(ticker):
@@ -914,8 +966,6 @@ def analyse_actions(request):
                 indicateurs["mfi_14"] = round(mfi_last, 2) if mfi_last is not None else None
 
                 # ===== Verdict synthétique 4 axes (modalités Sikafinance) =====
-                # GARCH n'est pas injecté ici : il sert au sizing/risque,
-                # pas à la direction du signal. Cf. services_verdict.py.
                 indicateurs["verdict"] = compute_verdict(
                     sma20=indicateurs.get("sma_20"),
                     sma50=indicateurs.get("sma_50"),
@@ -1009,23 +1059,19 @@ def analyse_actions(request):
                 "nb_exercices": len(fondamentaux_rows),
             }
 
-    # ===== Modèle GARCH (volatilité conditionnelle action-spécifique) =====
-    garch_model = None
-    garch_forecast = None
-    if selected_action:
-        garch_model = GarchModel.objects.filter(action=selected_action).first()
-        # Prévisions analytiques 1j / 5j / 22j à partir des paramètres stockés.
-        # Régime piloté par l'horizon 5j (compromis réactivité/stabilité).
-        try:
-            _fc = forecast_for_action(selected_action, regime_horizon=5)
-            garch_forecast = garch_to_tpl(_fc)
-        except Exception:
-            garch_forecast = None
-
-    # NB: Le backtest a été migré vers la page dédiée /simulateur-strategie/.
+    # NB: Le backtest a été retiré de cette page.
     # On expose toujours `backtest = None` dans le contexte au cas où des
     # éléments legacy du template y feraient référence (résilient).
     backtest = None
+
+    # ===== Matrice de confusion verdict technique vs Sikafinance =====
+    # Affichée dans le sous-onglet Indicateurs techniques de la page d'analyse.
+    confusion_sika = None
+    if selected_action:
+        try:
+            confusion_sika = matrice_confusion_vs_sika(selected_action)
+        except Exception:
+            confusion_sika = None
 
     # ===== Conseil Sikafinance (dernier snapshot) + comparaison verdict technique =====
     conseil_sika = None
@@ -1075,12 +1121,8 @@ def analyse_actions(request):
         "indicateurs": indicateurs,
         "conseil_sika": conseil_sika,
         "sika_comparaison": sika_comparaison,
-        "garch_model": garch_model,
-        "garch_forecast": garch_forecast,
-        "garch_vol_series_json": json.dumps(
-            garch_model.vol_conditionnelle_json if garch_model else []
-        ),
         "backtest": backtest,
+        "confusion_sika": confusion_sika,
         "backtest_pnl_json": json.dumps({
             "dates": (backtest or {}).get("pnl", {}).get("dates", []),
             "sans_frais": (backtest or {}).get("pnl", {}).get("sans_frais", []),
@@ -5490,13 +5532,23 @@ def api_strategie_appliquer(request):
 
 
 def api_strategie_backtest(request):
-    """Backtest buy-and-hold d'une allocation entre 2 dates.
+    """Backtest buy-and-hold d'une allocation entre 2 dates, avec intégration
+    des dividendes et des frais de transaction (achat + cession finale).
 
     Query params:
       ?alloc_id=<int>&date_debut=YYYY-MM-DD&date_fin=YYYY-MM-DD&montant=<float>
-      &indice=<ticker> (optionnel, défaut BRVMC)
+      &indice=<ticker>            (optionnel, défaut BRVMC)
+      &frais_pct=<float>          (optionnel, % aller ET retour ; défaut 1.0)
+      &inclure_dividendes=0|1     (optionnel, défaut 1)
 
-    Retourne la courbe de valeur du portefeuille (base 100) vs indice.
+    Modèle économique :
+    - Achat à date_debut : frais_pct% appliqués sur le coût brut.
+    - Détention : les dividendes détachés pendant la période sont crédités
+      en cash sur la date de détachement (annuels approximés au 30 juin).
+    - Cession à date_fin : frais_pct% appliqués sur la valeur de liquidation,
+      reflétés dans le dernier point de la courbe.
+
+    Retourne la courbe de valeur du portefeuille (base 100) vs indice + KPIs.
     """
     try:
         alloc_id = int(request.GET.get("alloc_id"))
@@ -5505,8 +5557,12 @@ def api_strategie_backtest(request):
         montant = float(request.GET.get("montant", 10_000_000))
         indice_ticker = request.GET.get("indice") or "BRVMC"
         frais_pct = float(request.GET.get("frais_pct", 1.0))
+        inclure_dividendes = request.GET.get("inclure_dividendes", "1") not in ("0", "false", "False", "")
     except (TypeError, ValueError):
         return JsonResponse({"error": "Paramètres invalides"}, status=400)
+
+    if frais_pct < 0:
+        frais_pct = 0.0
 
     try:
         alloc = AllocationStrategie.objects.get(id=alloc_id)
@@ -5517,11 +5573,18 @@ def api_strategie_backtest(request):
     if not poids_actions:
         return JsonResponse({"error": "Cette allocation n'a pas de poids actions"}, status=400)
 
+    try:
+        date_debut_obj = datetime.strptime(date_debut, "%Y-%m-%d").date()
+        date_fin_obj = datetime.strptime(date_fin, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "Dates invalides"}, status=400)
+
     # Étape 1 — Construire le portefeuille à date_debut (buy)
     actions_map = {a.ticker: a for a in Action.objects.filter(ticker__in=poids_actions.keys())}
 
-    positions = []  # list of (action, quantite, prix_achat, frais)
+    positions = []  # list of (action, quantite, prix_achat, frais_achat)
     cout_initial = 0.0
+    frais_entree_total = 0.0
     achats_detail = []
     for ticker, poids in poids_actions.items():
         action = actions_map.get(ticker)
@@ -5533,13 +5596,16 @@ def api_strategie_backtest(request):
         if not hist or not hist.cloture:
             continue
         montant_cible = montant * poids
-        qte = int(montant_cible // hist.cloture)
+        # On dimensionne en intégrant les frais : qte * prix * (1 + f) <= budget
+        denom = hist.cloture * (1 + frais_pct / 100)
+        qte = int(montant_cible // denom) if denom > 0 else 0
         if qte <= 0:
             continue
         cout_brut = qte * hist.cloture
         frais = cout_brut * (frais_pct / 100)
         positions.append((action, qte, hist.cloture, frais))
         cout_initial += cout_brut + frais
+        frais_entree_total += frais
         achats_detail.append({
             "ticker": ticker,
             "quantite": qte,
@@ -5584,16 +5650,47 @@ def api_strategie_backtest(request):
                 dernier = c
         return dernier
 
-    # Étape 4 — Courbe de valeur du portefeuille
+    # Étape 4 — Précharger les dividendes par action (si activés)
+    dividendes_par_action = {}
+    if inclure_dividendes:
+        for action, _, _, _ in positions:
+            dividendes_par_action[action.id] = _dividendes_dates_for_ticker(action.ticker)
+
+    # Étape 5 — Courbe de valeur du portefeuille avec crédit des dividendes en cash
     dates = []
     courbe_pf = []
+    cash_courant = liquidite_residuelle
+    dividendes_total = 0.0
+    prev_d = date_debut_obj  # bornage : on crédite les divs détachés *après* l'achat
     for d_obj, _ in hist_idx:
-        valeur = liquidite_residuelle
-        for action, qte, prix_achat, _frais in positions:
+        # Crédit des dividendes tombés entre prev_d (exclusif) et d_obj (inclusif)
+        for action, qte, _, _ in positions:
+            for div_date, montant in (dividendes_par_action.get(action.id) or {}).items():
+                if prev_d < div_date <= d_obj:
+                    credit = qte * montant
+                    cash_courant += credit
+                    dividendes_total += credit
+        prev_d = d_obj
+
+        valeur = cash_courant
+        for action, qte, prix_achat, _ in positions:
             cours = _cours_a_la_date(action.id, d_obj) or prix_achat
             valeur += cours * qte
         dates.append(d_obj.strftime("%Y-%m-%d"))
         courbe_pf.append(round((valeur / montant) * 100, 2) if montant else 100)
+
+    # Étape 6 — Frais de cession sur le dernier point (liquidation à date_fin)
+    last_d_obj = hist_idx[-1][0]
+    valeur_titres_fin = 0.0
+    for action, qte, prix_achat, _ in positions:
+        cours = _cours_a_la_date(action.id, last_d_obj) or prix_achat
+        valeur_titres_fin += cours * qte
+    frais_sortie = valeur_titres_fin * (frais_pct / 100)
+    frais_total = frais_entree_total + frais_sortie
+
+    # Reflet de la cession : on ampute le dernier point du coût de liquidation
+    if courbe_pf and montant:
+        courbe_pf[-1] = round(courbe_pf[-1] - (frais_sortie / montant) * 100, 2)
 
     base_idx = next((c for _, c in hist_idx if c), None) or 1
     courbe_idx = [round((c / base_idx) * 100, 2) if c else 100 for _, c in hist_idx]
@@ -5622,6 +5719,12 @@ def api_strategie_backtest(request):
         "liquidite_residuelle": round(liquidite_residuelle, 0),
         "nb_positions": len(positions),
         "achats": achats_detail,
+        "frais_pct": frais_pct,
+        "frais_entree": round(frais_entree_total, 0),
+        "frais_sortie": round(frais_sortie, 0),
+        "frais_total": round(frais_total, 0),
+        "inclure_dividendes": inclure_dividendes,
+        "dividendes_total": round(dividendes_total, 0),
     })
 
 

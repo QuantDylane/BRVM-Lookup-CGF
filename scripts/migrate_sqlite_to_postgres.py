@@ -54,7 +54,6 @@ MIGRATION_ORDER = [
     "dashboard.IndicateurCache",
     "dashboard.FondamentauxAnnuel",
     "dashboard.ConseilSikafinance",
-    "dashboard.GarchModel",
     "dashboard.SignalHistorique",
     "dashboard.BilanActif",
     "dashboard.BilanPassif",

@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views, views_strategie, views_simulateur
+from . import views, views_strategie
 
 app_name = "dashboard"
 
@@ -14,7 +14,6 @@ urlpatterns = [
     path("actualisation/", views.actualisation, name="actualisation"),
     path("export/", views.export_factsheet, name="export_factsheet"),
     path("portefeuille/", views.simulation_portefeuille, name="simulation_portefeuille"),
-    path("simulateur-strategie/", views_simulateur.simulateur_strategie, name="simulateur_strategie"),
 
     # API endpoints pour HTMX / AJAX
     path("api/action-data/<str:ticker>/", views.api_action_data, name="api_action_data"),

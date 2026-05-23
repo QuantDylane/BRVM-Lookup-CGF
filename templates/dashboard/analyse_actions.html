@@ -527,72 +527,6 @@
             </div>
         </div>
 
-        <!-- b-bis) VOLATILITÉ CONDITIONNELLE (modèle GARCH action-spécifique) -->
-        {% if garch_model %}
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-activity me-2"></i>Volatilité conditionnelle (modèle GARCH par action)</span>
-                {% if garch_model.model_type == "INSUFFISANT" %}
-                    <span class="badge bg-warning text-dark">Observations insuffisantes ({{ garch_model.n_obs|default:0 }})</span>
-                {% elif garch_model.model_type == "FAILED" %}
-                    <span class="badge bg-danger">Échec d'estimation</span>
-                {% else %}
-                    <span class="badge bg-info text-dark">{{ garch_model.get_model_type_display }}</span>
-                {% endif %}
-            </div>
-            <div class="card-body">
-                {% if garch_model.vol_actuelle_annualisee is not None %}
-                <div class="row g-3 align-items-center">
-                    <div class="col-md-3 text-center">
-                        <div class="text-muted small">σ annualisée actuelle</div>
-                        <div class="fw-bold fs-3" style="color:#7C3AED;">
-                            {{ garch_model.vol_actuelle_annualisee|format_number:1 }}%
-                        </div>
-                        <div class="text-muted small">σ_T × √252</div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="small text-muted">Paramètres estimés</div>
-                        <table class="table table-sm mb-0">
-                            <tbody>
-                                <tr><td>ω</td><td class="text-end">{{ garch_model.omega|format_number:4|default:"-" }}</td></tr>
-                                <tr><td>α</td><td class="text-end">{{ garch_model.alpha|format_number:4|default:"-" }}</td></tr>
-                                <tr><td>β</td><td class="text-end">{{ garch_model.beta|format_number:4|default:"-" }}</td></tr>
-                                {% if garch_model.gamma is not None %}
-                                <tr><td>γ (levier)</td><td class="text-end">{{ garch_model.gamma|format_number:4 }}</td></tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="small text-muted">Diagnostics</div>
-                        <table class="table table-sm mb-0">
-                            <tbody>
-                                <tr><td>Persistance</td><td class="text-end">{{ garch_model.persistence|format_number:3|default:"-" }}</td></tr>
-                                <tr><td>BIC</td><td class="text-end">{{ garch_model.bic|format_number:1|default:"-" }}</td></tr>
-                                <tr><td>Log-L</td><td class="text-end">{{ garch_model.llf|format_number:1|default:"-" }}</td></tr>
-                                <tr><td>n obs</td><td class="text-end">{{ garch_model.n_obs|default:"-" }}</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="col-md-3">
-                        <canvas id="garchVolChart" height="100"></canvas>
-                        <div class="text-center text-muted small mt-1">σ annualisée — 252 derniers jours</div>
-                    </div>
-                </div>
-                <div class="text-muted small mt-2">
-                    Modèle ré-entraîné le {{ garch_model.fitted_date|date:"d/m/Y" }}.
-                    Sélection par BIC parmi GARCH(1,1), GJR-GARCH(1,1,1), EGARCH(1,1).
-                </div>
-                {% else %}
-                <p class="text-muted mb-0">
-                    {{ garch_model.erreur_message|default:"Pas de volatilité conditionnelle disponible." }}
-                </p>
-                {% endif %}
-            </div>
-        </div>
-        {{ garch_vol_series_json|json_script:"garch-vol-series" }}
-        {% endif %}
-
         <!-- c) DESCRIPTION + FONDAMENTAUX + DIVIDENDES (3 colonnes responsive) -->
         <div class="row g-3 mb-4">
             <!-- Description -->
@@ -1068,16 +1002,16 @@
             </div>
         </div>
 
-        <!-- Synthèse : jauge + 4 cartes signal + carte régime de risque GARCH -->
+        <!-- Synthèse : jauge + 4 cartes signal -->
         <div class="row g-3 mb-3">
             <!-- Verdict synthétique (jauge + cartes axes) -->
-            <div class="col-lg-8">
+            <div class="col-lg-12">
                 <div class="card h-100">
                     <div class="card-header d-flex align-items-center gap-2">
                         <span><i class="bi bi-bullseye me-2"></i>Verdict synthétique</span>
                         <i class="bi bi-info-circle text-muted" style="cursor:help;"
                            data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="right"
-                           title="Score global ∈ [−1, +1], moyenne 1/N des 4 axes (Tendance / Momentum / Volatilité / Volume), chaque axe étant la moyenne 1/N de ses 2 sous-signaux normalisés.<br><br><b>Intervalles de décision (modalités Sikafinance) :</b><br>🟢 <b>Acheter</b> : score ≥ +0.50<br>🟢 <b>Renforcer</b> : +0.15 ≤ score &lt; +0.50<br>⚪ <b>Conserver</b> : −0.15 &lt; score &lt; +0.15<br>🟠 <b>Alléger</b> : −0.50 &lt; score ≤ −0.15<br>🔴 <b>Vendre</b> : score ≤ −0.50<br><br>Affichage /100 = (score + 1) × 50.<br><br><i>NB : la volatilité GARCH n'entre pas dans ce verdict directionnel — elle est exposée séparément dans la carte « Régime de risque » et sert au sizing dans le simulateur de portefeuille.</i>"></i>
+                           title="Score global ∈ [−1, +1], moyenne 1/N des 4 axes (Tendance / Momentum / Volatilité / Volume), chaque axe étant la moyenne 1/N de ses 2 sous-signaux normalisés.<br><br><b>Intervalles de décision (modalités Sikafinance) :</b><br>🟢 <b>Acheter</b> : score ≥ +0.50<br>🟢 <b>Renforcer</b> : +0.15 ≤ score &lt; +0.50<br>⚪ <b>Conserver</b> : −0.15 &lt; score &lt; +0.15<br>🟠 <b>Alléger</b> : −0.50 &lt; score ≤ −0.15<br>🔴 <b>Vendre</b> : score ≤ −0.50<br><br>Affichage /100 = (score + 1) × 50."></i>
                     </div>
                     <div class="card-body">
                         <div class="row g-3 align-items-center">
@@ -1088,94 +1022,6 @@
                                 <div id="techVerdictCards" class="signal-cards-grid"></div>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Carte régime de risque GARCH -->
-            <div class="col-lg-4">
-                <div class="card h-100" id="garchRiskCard">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <span><i class="bi bi-shield-exclamation me-2"></i>Régime de risque (GARCH)</span>
-                        <i class="bi bi-info-circle text-muted ms-auto" style="cursor:help;"
-                           data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="left"
-                           title="Prévisions analytiques de la volatilité conditionnelle σ̂(t+h), reconstruites depuis les paramètres ω, α, β, γ du modèle GARCH/GJR/EGARCH sélectionné par BIC sur cette action.<br><br><b>Régime</b> = percentile rolling 252j de σ̂(t+5) dans l'historique propre de l'action :<br>🟢 <b>Calme</b> : p ≤ 25%<br>🟢 <b>Normal</b> : 25% &lt; p ≤ 50%<br>🟠 <b>Tendu</b> : 50% &lt; p ≤ 80%<br>🔴 <b>Stressé</b> : p &gt; 80%<br><br>Le <b>facteur de taille</b> module les ordres d'achat dans le simulateur : facteur 1.0 à p ≤ 50%, décroît linéairement jusqu'à 0.0 à p = 100%. Les ordres de vente ne sont jamais modulés.<br><br><i>Paramètres GARCH calibrés sur l'ensemble de la période disponible : les prévisions ré-historisées dans le backtest comportent un léger biais de look-ahead.</i>"></i>
-                    </div>
-                    <div class="card-body">
-                        {% if garch_forecast and garch_forecast.disponible %}
-                            <!-- Bandeau régime -->
-                            <div class="text-center p-2 rounded mb-3"
-                                 style="background-color: {{ garch_forecast.regime_color }}15;
-                                        border: 1px solid {{ garch_forecast.regime_color }}55;">
-                                <div class="text-muted small">Régime (horizon {{ garch_forecast.regime_horizon }}j)</div>
-                                <div class="fw-bold" style="color: {{ garch_forecast.regime_color }}; font-size: 1.25rem;">
-                                    {{ garch_forecast.regime }}
-                                </div>
-                                <div class="text-muted small">
-                                    Modèle : <span class="fw-semibold">{{ garch_forecast.model_type }}</span>
-                                </div>
-                            </div>
-
-                            <!-- Référence : vol actuelle vs médiane -->
-                            <div class="d-flex justify-content-between mb-2 small">
-                                <span class="text-muted">σ courant (σ_T)</span>
-                                <span class="fw-semibold">{{ garch_forecast.vol_actuelle_pct }}</span>
-                            </div>
-                            <div class="d-flex justify-content-between mb-3 small border-bottom pb-2">
-                                <span class="text-muted">Médiane 252j</span>
-                                <span>{{ garch_forecast.vol_mediane_252j_pct }}</span>
-                            </div>
-
-                            <!-- Tableau des horizons -->
-                            <div class="small text-muted mb-1">Prévisions σ̂(t+h) annualisées</div>
-                            <table class="table table-sm mb-0" style="font-size: .82rem;">
-                                <thead>
-                                    <tr>
-                                        <th>Horizon</th>
-                                        <th class="text-end">σ̂</th>
-                                        <th class="text-end">Percentile</th>
-                                        <th class="text-end" title="Modulateur de taille appliqué aux achats">Sizing</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for h in garch_forecast.horizons %}
-                                    <tr {% if h.h == garch_forecast.regime_horizon %}class="table-active"{% endif %}>
-                                        <td class="small">{{ h.label }}</td>
-                                        <td class="text-end fw-semibold">{{ h.vol_pct }}</td>
-                                        <td class="text-end">{{ h.percentile_pct }}</td>
-                                        <td class="text-end">
-                                            {% if h.percentile_raw is None %}
-                                                <span class="text-muted">—</span>
-                                            {% else %}
-                                                <span class="fw-semibold"
-                                                      style="color: {% if h.size_factor >= 0.75 %}#10B981{% elif h.size_factor >= 0.25 %}#F59E0B{% else %}#EF4444{% endif %};">
-                                                    ×{{ h.size_factor|floatformat:2 }}
-                                                </span>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                            <div class="text-muted mt-2" style="font-size: .72rem; line-height: 1.4;">
-                                <i class="bi bi-info-circle me-1"></i>
-                                Le <strong>Sizing</strong> module la taille des achats dans le simulateur de portefeuille (option β). Les ventes ne sont pas modulées.
-                            </div>
-                        {% else %}
-                            <div class="text-center text-muted py-4">
-                                <i class="bi bi-exclamation-circle" style="font-size: 2rem; opacity: .5;"></i>
-                                <div class="mt-2 small">
-                                    {% if garch_forecast and garch_forecast.raison_indispo %}
-                                        {{ garch_forecast.raison_indispo }}
-                                    {% else %}
-                                        Prévisions GARCH indisponibles pour cette action.
-                                    {% endif %}
-                                </div>
-                                <div class="mt-3 small">
-                                    <code>python manage.py train_garch --ticker {{ selected_action.ticker }}</code>
-                                </div>
-                            </div>
-                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -1487,26 +1333,50 @@
             </div>
         </div>
 
+        <!-- Matrice de confusion verdict technique vs Sikafinance -->
+        {% if confusion_sika %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-grid-3x3 me-2"></i>Matrice de confusion verdict technique vs Sikafinance
+                <span class="badge bg-secondary ms-2">{{ confusion_sika.n_total }} paires</span>
+                <span class="badge bg-success ms-1">{{ confusion_sika.taux_concordance|floatformat:2 }} concordance</span>
+                <span class="badge bg-danger ms-1">{{ confusion_sika.taux_divergence_forte|floatformat:2 }} div. forte</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0 text-center">
+                        <thead class="table-light">
+                            <tr>
+                                <th>↓ Tech \ Sika →</th>
+                                {% for cs in confusion_sika.codes_sika %}
+                                <th>{{ cs }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ct in confusion_sika.codes_tech %}
+                            <tr>
+                                <th class="table-light">{{ ct }}</th>
+                                {% for cs in confusion_sika.codes_sika %}
+                                <td>{{ confusion_sika.matrice|get_item:ct|get_item:cs|default:0 }}</td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info small">
+            <i class="bi bi-info-circle me-2"></i>
+            Matrice de confusion vs Sikafinance indisponible (pas encore assez de snapshots Sikafinance).
+        </div>
+        {% endif %}
+
         <!-- Configuration legacy supprimée — refonte 2024 -->
         </div>
     <!-- /ONGLET 2 -->
-
-    <!-- Carte teaser : renvoie vers la page Simulateur stratégie dédiée -->
-    <div class="card mb-3" id="backtestTeaser">
-        <div class="card-body py-4 text-center">
-            <i class="bi bi-graph-up-arrow text-primary" style="font-size: 2.5rem;"></i>
-            <h5 class="mt-2 mb-1">Backtest & simulation de portefeuille</h5>
-            <p class="text-muted small mb-3">
-                Backtest argent réel (verdict 4-axes + filtre GARCH, T+2, frais, dividendes), métriques par code de verdict
-                et matrice de confusion vs Sikafinance sont disponibles dans une page dédiée.
-            </p>
-            <a href="{% url 'dashboard:simulateur_strategie' %}?ticker={{ selected_action.ticker }}"
-               class="btn btn-primary">
-                <i class="bi bi-arrow-right-circle me-1"></i>
-                Ouvrir dans le simulateur de stratégie
-            </a>
-        </div>
-    </div>
 
 </div>
 {% else %}
@@ -2419,42 +2289,8 @@ function renderSignalChangements(data) {
 // (legacy TA-Lib helper JS removed)
 
 // (Bloc equity curve du backtest retiré — déplacé vers la page Simulateur stratégie)
-
-// Mini-chart de la volatilité conditionnelle GARCH (σ annualisée %)
-(function() {
-    var node = document.getElementById('garch-vol-series');
-    var canvas = document.getElementById('garchVolChart');
-    if (!node || !canvas || typeof Chart === 'undefined') return;
-    var serie;
-    try { serie = JSON.parse(node.textContent || '[]'); } catch(e) { serie = []; }
-    if (!serie.length) return;
-    var labels = serie.map(function(_, i) { return i + 1; });
-    new Chart(canvas, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                data: serie,
-                borderColor: '#7C3AED',
-                backgroundColor: 'rgba(124, 58, 237, 0.15)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 0,
-                borderWidth: 2,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: { enabled: true } },
-            scales: {
-                x: { display: false },
-                y: { display: true, ticks: { font: { size: 9 } } },
-            }
-        }
-    });
-})();
 </script>
+
 <script src="{% static 'js/indicators_tech.js' %}?v={% now 'YmdHis' %}" defer></script>
 {% endif %}
 {% endblock %}

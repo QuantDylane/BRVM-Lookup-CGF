@@ -50,7 +50,6 @@ SELECT 'dashboard_action'         AS t, COUNT(*) FROM brvm.dashboard_action
 UNION ALL SELECT 'dashboard_historiqueaction',   COUNT(*) FROM brvm.dashboard_historiqueaction
 UNION ALL SELECT 'dashboard_signalhistorique',   COUNT(*) FROM brvm.dashboard_signalhistorique
 UNION ALL SELECT 'dashboard_conseilsikafinance', COUNT(*) FROM brvm.dashboard_conseilsikafinance
-UNION ALL SELECT 'dashboard_garchmodel',         COUNT(*) FROM brvm.dashboard_garchmodel
 ORDER BY 1;
 
 -- Taille de chaque table

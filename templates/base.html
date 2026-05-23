@@ -82,13 +82,7 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if request.resolver_match.url_name == 'simulateur_strategie' %}active{% endif %}" href="{% url 'dashboard:simulateur_strategie' %}">
-                    <i class="bi bi-graph-up-arrow"></i>
-                    <span>Simulateur stratégie</span>
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if 'strategie' in request.resolver_match.url_name|default:'' and request.resolver_match.url_name != 'simulateur_strategie' %}active{% endif %}" href="{% url 'dashboard:strategie_dashboard' %}">
+                <a class="nav-link {% if 'strategie' in request.resolver_match.url_name|default:'' %}active{% endif %}" href="{% url 'dashboard:strategie_dashboard' %}">
                     <i class="bi bi-diagram-3"></i>
                     <span>Stratégie HMM</span>
                 </a>
