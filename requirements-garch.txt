@@ -6,6 +6,10 @@
 Django>=4.2,<5.2
 python-dotenv>=1.0
 
+# Postgres (Supabase) en prod
+psycopg[binary]>=3.2
+dj-database-url>=2.2
+
 # Estimation GARCH/GJR-GARCH/EGARCH (Kevin Sheppard)
 arch>=6.3
 numpy>=1.24

@@ -12,7 +12,10 @@ env/
 # Django
 *.log
 local_settings.py
-# db.sqlite3 est versionné : mis à jour quotidiennement par GitHub Actions
+# db.sqlite3 n'est PLUS versionné : la base de prod est sur Supabase Postgres.
+# Le fichier reste utile en local pour les imports historiques et la migration
+# (script scripts/migrate_sqlite_to_postgres.py).
+db.sqlite3
 db.sqlite3-journal
 db.sqlite3.backup_*
 db.sqlite3.backup-*

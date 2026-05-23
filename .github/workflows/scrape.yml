@@ -19,12 +19,11 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     timeout-minutes: 90
 
     env:
       DJANGO_SETTINGS_MODULE: lookupbrvm.settings
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
       - name: Checkout
@@ -72,9 +71,9 @@ jobs:
           fi
         continue-on-error: true
 
-      # 5) Import des CSV scrapés dans db.sqlite3 via Django ORM
-      #    Le fichier db.sqlite3 est inclus dans le checkout ; les CSV sont éphémères.
-      - name: Import dans db.sqlite3
+      # 5) Import des CSV scrapés dans Supabase Postgres via Django ORM
+      #    Les CSV sont éphémères ; les données vont directement dans la DB hébergée.
+      - name: Import dans Supabase
         run: python manage.py import_data
 
       # 6) Snapshot quotidien du conseil Sikafinance (1 ligne / action / jour)
@@ -89,18 +88,8 @@ jobs:
         run: python manage.py backfill_signals
         continue-on-error: true
 
-      # 8) Commit uniquement db.sqlite3 (plus les CSV de data/)
-      - name: Commit & push db.sqlite3
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add db.sqlite3
-          if git diff --cached --quiet; then
-            echo "Aucune nouvelle donnée à commiter."
-          else
-            git commit -m "chore(db): maj quotidienne BRVM $(date -u +'%Y-%m-%d')"
-            git push
-          fi
+      # Plus de commit de db.sqlite3 : la base est maintenant sur Supabase
+      # Postgres et reçoit les écritures directement via DATABASE_URL.
 
       - name: Upload scraper logs
         if: always()

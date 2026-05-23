@@ -6,3 +6,7 @@ lxml>=4.9
 # Django (nécessaire pour manage.py import_data en CI)
 Django>=4.2,<5.2
 python-dotenv>=1.0
+
+# Postgres (Supabase) en prod ; SQLite reste actif si DATABASE_URL absent.
+psycopg[binary]>=3.2
+dj-database-url>=2.2

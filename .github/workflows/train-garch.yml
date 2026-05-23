@@ -22,12 +22,11 @@ concurrency:
 jobs:
   train:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     timeout-minutes: 30
 
     env:
       DJANGO_SETTINGS_MODULE: lookupbrvm.settings
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
       - name: Checkout
@@ -45,7 +44,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-garch.txt
 
-      # Migrations no-op si déjà appliquées sur le db.sqlite3 versionné
+      # Migrations no-op si déjà appliquées sur Supabase
       - name: Appliquer les migrations
         run: python manage.py migrate --noinput
 
@@ -59,15 +58,5 @@ jobs:
             ARGS="$ARGS --min-obs ${{ github.event.inputs.min_obs }}"
           fi
           python manage.py train_garch $ARGS
-
-      - name: Commit & push db.sqlite3
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add db.sqlite3
-          if git diff --cached --quiet; then
-            echo "Aucun changement dans db.sqlite3."
-          else
-            git commit -m "chore(garch): ré-entraînement mensuel $(date -u +'%Y-%m')"
-            git push
-          fi
+      # Plus de commit de db.sqlite3 : les paramètres GARCH vont directement
+      # dans Supabase Postgres via DATABASE_URL.
