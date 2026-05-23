@@ -14,6 +14,15 @@ La pondération 1/N est défendue empiriquement par DeMiguel, Garlappi & Uppal
 (2009) sur la diversification ; la transformation bornée à ±1 par seuils
 "métier" évite l'instabilité d'estimation des z-scores glissantes sur des
 séries courtes (typique BRVM).
+
+Séparation direction / risque
+-----------------------------
+Le verdict ne mesure QUE la direction attendue du prix. La volatilité GARCH
+n'est volontairement PAS intégrée ici : un régime de forte volatilité n'est
+ni haussier ni baissier en soi, et l'ajouter introduirait un double comptage
+avec NATR (deux thermomètres de vol pour un seul axe). GARCH est exposé
+séparément comme "carte de risque" — il sert à moduler la TAILLE des
+positions dans la simulation de portefeuille, pas le SENS du signal.
 """
 from __future__ import annotations
 
@@ -130,29 +139,6 @@ def signal_natr_regime(natr_series: Optional[List[Optional[float]]],
     return -_clip(deviation / 0.5)
 
 
-def signal_garch_regime(vol_series: Optional[List[Optional[float]]],
-                        lookback: int = 60) -> Optional[float]:
-    """Volatilité #3 (parallèle NATR) : vol GARCH actuelle vs médiane historique.
-
-    Symétrique à ``signal_natr_regime`` mais basé sur la volatilité conditionnelle
-    GARCH (action-spécifique, ré-estimée mensuellement) plutôt que sur le NATR.
-
-    Vol anormalement élevée -> signal négatif (régime stressé) ;
-    vol anormalement basse  -> signal positif léger (régime calme).
-    """
-    if not vol_series:
-        return None
-    arr = np.array([v for v in vol_series if v is not None], dtype=float)
-    if arr.size < 10:
-        return None
-    current = arr[-1]
-    ref = float(np.median(arr[-lookback:])) if arr.size >= lookback else float(np.median(arr))
-    if ref <= 0 or not np.isfinite(current):
-        return None
-    deviation = current / ref - 1.0
-    return -_clip(deviation / 0.5)
-
-
 def signal_obv_slope(obv_series: Optional[List[Optional[float]]],
                      window: int = 10) -> Optional[float]:
     """Volume #1 : pente de l'OBV sur ``window`` jours, normalisée."""
@@ -215,7 +201,6 @@ def compute_verdict(*,
                     bb_upper: Optional[float] = None,
                     bb_lower: Optional[float] = None,
                     natr_series: Optional[List[Optional[float]]] = None,
-                    garch_vol_series: Optional[List[Optional[float]]] = None,
                     obv_series: Optional[List[Optional[float]]] = None,
                     mfi_val: Optional[float] = None) -> Dict:
     """Calcule le verdict synthétique 4 axes / 8 sous-signaux.
@@ -240,11 +225,12 @@ def compute_verdict(*,
     s_mom_2 = signal_macd_hist(macd_hist, atr_val, last_close)
     score_momentum, n_mom = _aggregate([s_mom_1, s_mom_2])
 
-    # Axe Volatilité (3 sous-signaux : %B, NATR, GARCH en parallèle)
+    # Axe Volatilité (2 sous-signaux : %B contrarian + NATR régime)
+    # NB: GARCH est volontairement exclu du verdict (signal de risque, pas de
+    # direction). Il est affiché séparément dans la carte "Régime de risque".
     s_vol_1 = signal_bbands_pctb(last_close, bb_upper, bb_lower)
     s_vol_2 = signal_natr_regime(natr_series)
-    s_vol_3 = signal_garch_regime(garch_vol_series)
-    score_volat, n_vol = _aggregate([s_vol_1, s_vol_2, s_vol_3])
+    score_volat, n_vol = _aggregate([s_vol_1, s_vol_2])
 
     # Axe Volume
     s_volu_1 = signal_obv_slope(obv_series)
@@ -274,7 +260,6 @@ def compute_verdict(*,
             "details": {
                 "bb_pctb": _round(s_vol_1),
                 "natr_regime": _round(s_vol_2),
-                "garch_regime": _round(s_vol_3),
             },
         },
         "volume": {

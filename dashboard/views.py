@@ -8,9 +8,10 @@ from collections import defaultdict
 import numpy as np
 from django.shortcuts import render
 from django.http import JsonResponse, HttpResponse
-from django.db.models import Max, Min, Avg, Count, Q, F
+from django.db.models import Max, Min, Avg, Count, Q, F, Sum, Case, When, IntegerField
 from django.utils import timezone
 from django.conf import settings
+from django.core.cache import cache
 
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -28,6 +29,7 @@ from .models import (
 from .models_strategie import AllocationStrategie
 from .services_verdict import compute_verdict
 from .services_backtest import backtest_action
+from .services_garch_forecast import forecast_for_action, to_template_dict as garch_to_tpl
 from .services_indicators import (
     adx as ind_adx,
     atr as ind_atr,
@@ -41,20 +43,40 @@ from .services_indicators import (
 # Helpers
 # ============================================================
 
-def get_derniere_maj():
-    """Date de la dernière donnée disponible."""
+def get_last_date(use_cache=True):
+    """Dernière date disponible dans HistoriqueAction.
+
+    Mise en cache 60s : c'est la clé de versioning de tout le cache accueil,
+    donc on accepte un léger retard d'invalidation (max 60s après un scrape).
+    """
+    if use_cache:
+        cached = cache.get("last_date")
+        if cached is not None:
+            return cached
     last = HistoriqueAction.objects.aggregate(max_date=Max("date"))["max_date"]
+    if use_cache and last is not None:
+        cache.set("last_date", last, 60)
+    return last
+
+
+def get_derniere_maj(last_date=None):
+    """Date de la dernière donnée disponible (format JJ/MM/AAAA).
+
+    Accepte un `last_date` pré-calculé pour éviter un MAX(date) redondant.
+    """
+    last = last_date if last_date is not None else get_last_date()
     return last.strftime("%d/%m/%Y") if last else "N/A"
 
 
-def get_context_base(request):
-    """Contexte commun à toutes les pages."""
-    derniere_maj = get_derniere_maj()
-    # Alerte si données non actualisées depuis > 2 jours
-    alerte_maj = False
-    last = HistoriqueAction.objects.aggregate(max_date=Max("date"))["max_date"]
-    if last and (datetime.now().date() - last).days > 2:
-        alerte_maj = True
+def get_context_base(request, last_date=None):
+    """Contexte commun à toutes les pages.
+
+    `last_date` peut être passé par la vue appelante pour mutualiser le
+    MAX(date) avec ses propres besoins (évite un aller-retour SQL).
+    """
+    last = last_date if last_date is not None else get_last_date()
+    derniere_maj = last.strftime("%d/%m/%Y") if last else "N/A"
+    alerte_maj = bool(last and (datetime.now().date() - last).days > 2)
     return {"derniere_maj": derniere_maj, "alerte_maj": alerte_maj}
 
 
@@ -316,138 +338,141 @@ def compute_sharpe(returns, rf=0.0):
 # Pages principales
 # ============================================================
 
-def accueil(request):
-    ctx = get_context_base(request)
+# Durée de cache pour les blocs lourds de l'accueil. Les clés sont versionnées
+# par `last_date` → invalidation automatique au prochain scrape. 30 min est un
+# compromis sûr (la BRVM publie ses cours une fois par jour).
+_ACCUEIL_CACHE_TTL = 60 * 30
 
-    # KPIs généraux
-    nb_actions = Action.objects.count()
-    nb_indices = Indice.objects.count()
-    nb_news = News.objects.count()
 
-    # Dernier cours pour chaque action (Top/Flop) avec sparkline
-    actions = Action.objects.all()
+def _ck(prefix, last_date):
+    """Cache key versionnée par la dernière date d'historique."""
+    return f"accueil:{prefix}:{last_date.isoformat() if last_date else 'none'}"
+
+
+def _accueil_performances(last_date):
+    """Performances + sparklines + meta action (secteur, nombre_actions).
+
+    Retourne (performances, actions_meta) où actions_meta[ticker] =
+    {"secteur": str, "nombre_actions": int|None}.
+    """
+    key = _ck("perf", last_date)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    actions_list = list(Action.objects.all().only("id", "ticker", "secteur", "nombre_actions"))
+    actions_by_id = {a.id: a for a in actions_list}
+
     performances = []
-    for action in actions:
-        recent = list(
-            HistoriqueAction.objects.filter(action=action)
-            .order_by("-date")
-            .values("date", "cloture", "variation_pct")[:30]
+    if last_date and actions_list:
+        cutoff = last_date - timedelta(days=60)
+        recent_rows = list(
+            HistoriqueAction.objects
+            .filter(date__gte=cutoff)
+            .order_by("action_id", "-date")
+            .values("action_id", "date", "cloture", "variation_pct")
         )
-        if recent:
-            sparkline = [r["cloture"] for r in reversed(recent) if r["cloture"] is not None]
-            perf = {
+        by_action = defaultdict(list)
+        for r in recent_rows:
+            lst = by_action[r["action_id"]]
+            if len(lst) < 30:
+                lst.append(r)
+        for aid, rows in by_action.items():
+            action = actions_by_id.get(aid)
+            if not action or not rows:
+                continue
+            sparkline = [r["cloture"] for r in reversed(rows) if r["cloture"] is not None]
+            performances.append({
                 "ticker": action.ticker,
-                "cloture": recent[0]["cloture"],
-                "date": recent[0]["date"],
-                "variation": recent[0]["variation_pct"],
+                "cloture": rows[0]["cloture"],
+                "date": rows[0]["date"],
+                "variation": rows[0]["variation_pct"],
                 "sparkline": sparkline,
-            }
-            performances.append(perf)
+            })
 
-    # Tri top/flop
-    performances.sort(key=lambda x: x["variation"] or 0, reverse=True)
-    top5 = performances[:5]
-    flop5 = sorted(performances, key=lambda x: x["variation"] or 0)[:5]
+    actions_meta = {
+        a.ticker: {"secteur": a.secteur or "", "nombre_actions": a.nombre_actions}
+        for a in actions_list
+    }
+    result = (performances, actions_meta)
+    cache.set(key, result, _ACCUEIL_CACHE_TTL)
+    return result
 
-    # Indice BRVM Composite (dernier point)
-    brvm_c = None
-    brvm_c_var = None
-    try:
-        indice_brvmc = Indice.objects.get(ticker="BRVMC")
-        last_idx = HistoriqueIndice.objects.filter(indice=indice_brvmc).order_by("-date").first()
-        if last_idx:
-            brvm_c = last_idx.cloture
-            brvm_c_var = last_idx.variation_pct
-    except Indice.DoesNotExist:
-        pass
 
-    # Volume total du jour
-    last_date = HistoriqueAction.objects.aggregate(max_date=Max("date"))["max_date"]
-    volume_total = 0
-    if last_date:
-        vol = HistoriqueAction.objects.filter(date=last_date).aggregate(
-            total=Avg("volume_fcfa")  # moyenne pour affichage
-        )
-        volume_jour = HistoriqueAction.objects.filter(date=last_date).aggregate(
-            total=models_sum("volume_fcfa")
-        )
-        volume_total = volume_jour["total"] or 0
+def _accueil_indices(last_date):
+    """Récupère BRVMC (chart complet + dernier point) et CAPIBRVM (dernière clôture)."""
+    key = _ck("indices", last_date)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
 
-    # Capitalisation (indice CAPIBRVM)
-    capi = None
-    try:
-        indice_capi = Indice.objects.get(ticker="CAPIBRVM")
-        last_capi = HistoriqueIndice.objects.filter(indice=indice_capi).order_by("-date").first()
-        if last_capi:
-            capi = last_capi.cloture
-    except Indice.DoesNotExist:
-        pass
-
-    # Données pour le graphique d'évolution BRVMC (toutes les données)
+    indices_map = {
+        i.ticker: i for i in Indice.objects.filter(ticker__in=["BRVMC", "CAPIBRVM"])
+    }
+    brvm_c = brvm_c_var = capi = None
     chart_data = {"labels": [], "values": []}
-    try:
-        indice_brvmc = Indice.objects.get(ticker="BRVMC")
-        points = list(
-            HistoriqueIndice.objects.filter(indice=indice_brvmc)
+
+    indice_brvmc = indices_map.get("BRVMC")
+    if indice_brvmc:
+        brvmc_points = list(
+            HistoriqueIndice.objects
+            .filter(indice=indice_brvmc)
             .order_by("date")
-            .values("date", "cloture")
+            .values("date", "cloture", "variation_pct")
         )
-        chart_data["labels"] = [p["date"].strftime("%d/%m/%y") for p in points]
-        chart_data["values"] = [p["cloture"] for p in points]
-    except Indice.DoesNotExist:
-        pass
+        if brvmc_points:
+            chart_data["labels"] = [p["date"].strftime("%d/%m/%y") for p in brvmc_points]
+            chart_data["values"] = [p["cloture"] for p in brvmc_points]
+            last_brvmc = brvmc_points[-1]
+            brvm_c = last_brvmc["cloture"]
+            brvm_c_var = last_brvmc["variation_pct"]
 
-    # Actualités récentes (5 plus récentes)
-    recent_news = list(
-        News.objects.exclude(titre="").order_by("-date_publication")[:5]
-    )
+    indice_capi = indices_map.get("CAPIBRVM")
+    if indice_capi:
+        capi = (
+            HistoriqueIndice.objects
+            .filter(indice=indice_capi)
+            .order_by("-date")
+            .values_list("cloture", flat=True)
+            .first()
+        )
 
-    # ---- Largeur de marché (advances / declines / unchanged) sur le dernier jour
+    result = {"brvm_c": brvm_c, "brvm_c_var": brvm_c_var, "capi": capi, "chart_data": chart_data}
+    cache.set(key, result, _ACCUEIL_CACHE_TTL)
+    return result
+
+
+def _accueil_breadth_volume(last_date):
+    """Agrégat SQL unique : volume_total + breadth (up/down/flat) du dernier jour."""
+    key = _ck("breadth", last_date)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    volume_total = 0
     breadth = {"up": 0, "down": 0, "flat": 0}
     if last_date:
-        for h in HistoriqueAction.objects.filter(date=last_date).values("variation_pct"):
-            v = h["variation_pct"]
-            if v is None:
-                continue
-            if v > 0:
-                breadth["up"] += 1
-            elif v < 0:
-                breadth["down"] += 1
-            else:
-                breadth["flat"] += 1
-    breadth_total = breadth["up"] + breadth["down"] + breadth["flat"]
-    breadth_ratio = {
-        "up": round(breadth["up"] / breadth_total * 100, 1) if breadth_total else 0,
-        "down": round(breadth["down"] / breadth_total * 100, 1) if breadth_total else 0,
-        "flat": round(breadth["flat"] / breadth_total * 100, 1) if breadth_total else 0,
-    }
+        agg = HistoriqueAction.objects.filter(date=last_date).aggregate(
+            volume_total=Sum("volume_fcfa"),
+            up=Count(Case(When(variation_pct__gt=0, then=1), output_field=IntegerField())),
+            down=Count(Case(When(variation_pct__lt=0, then=1), output_field=IntegerField())),
+            flat=Count(Case(When(variation_pct=0, then=1), output_field=IntegerField())),
+        )
+        volume_total = agg["volume_total"] or 0
+        breadth = {"up": agg["up"] or 0, "down": agg["down"] or 0, "flat": agg["flat"] or 0}
 
-    # ---- Ticker-tape : tous les tickers + cours + variation jour
-    ticker_tape = []
-    for p in performances:
-        ticker_tape.append({
-            "ticker": p["ticker"],
-            "cloture": p["cloture"],
-            "variation": p["variation"],
-        })
+    result = {"volume_total": volume_total, "breadth": breadth}
+    cache.set(key, result, _ACCUEIL_CACHE_TTL)
+    return result
 
-    # ---- Heatmap initiale (variation 1J par secteur)
-    heatmap_items = []
-    actions_meta = {a.ticker: a for a in actions}
-    for p in performances:
-        a = actions_meta.get(p["ticker"])
-        secteur = (a.secteur if a else "") or "Non classé"
-        nb = (a.nombre_actions if a else None) or 0
-        cap = (p["cloture"] or 0) * nb if (p["cloture"] and nb) else 0
-        heatmap_items.append({
-            "ticker": p["ticker"],
-            "secteur": secteur,
-            "cloture": p["cloture"],
-            "variation": p["variation"],
-            "cap": cap,
-        })
 
-    # ---- Action sous surveillance : plus gros volume du dernier jour
+def _accueil_featured(last_date):
+    """Action sous surveillance (plus gros volume) avec sparkline + RSI + YTD + 52w."""
+    key = _ck("featured", last_date)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
     featured = None
     if last_date:
         top_vol = (
@@ -466,7 +491,6 @@ def accueil(request):
             closes = [h["cloture"] for h in reversed(hist) if h["cloture"] is not None]
             sparkline_f = closes[-60:] if len(closes) > 60 else closes
             rsi_f = compute_rsi(closes) if len(closes) >= 15 else None
-            # Variation YTD
             year_now = datetime.now().year
             year_data = [h for h in hist if h["date"].year == year_now and h["cloture"]]
             var_ytd = None
@@ -474,10 +498,7 @@ def accueil(request):
                 ref = year_data[-1]["cloture"]
                 if ref:
                     var_ytd = round((top_vol.cloture - ref) / ref * 100, 2)
-            # Plus haut / plus bas 52 semaines (≈ 252 séances)
             window = closes[-252:] if len(closes) > 252 else closes
-            high_52 = max(window) if window else None
-            low_52 = min(window) if window else None
             featured = {
                 "ticker": action_f.ticker,
                 "nom": action_f.nom or action_f.ticker,
@@ -487,10 +508,98 @@ def accueil(request):
                 "volume_fcfa": top_vol.volume_fcfa,
                 "rsi": rsi_f,
                 "var_ytd": var_ytd,
-                "high_52": high_52,
-                "low_52": low_52,
+                "high_52": max(window) if window else None,
+                "low_52": min(window) if window else None,
                 "sparkline": sparkline_f,
             }
+
+    cache.set(key, featured, _ACCUEIL_CACHE_TTL)
+    return featured
+
+
+def _accueil_kpis():
+    """3 COUNT() agrégés en une seule liste de helpers, mis en cache court."""
+    key = "accueil:kpis"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    result = {
+        "nb_actions": Action.objects.count(),
+        "nb_indices": Indice.objects.count(),
+        "nb_news": News.objects.count(),
+    }
+    # TTL plus court : les compteurs peuvent évoluer hors scrape (admin, etc.)
+    cache.set(key, result, 60)
+    return result
+
+
+def _accueil_recent_news():
+    """5 dernières news. TTL court (les news arrivent en continu)."""
+    key = "accueil:recent_news"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    rows = list(
+        News.objects.exclude(titre="")
+        .order_by("-date_publication")
+        .values("id", "titre", "date_publication", "categorie", "url", "image_url")[:5]
+    )
+    cache.set(key, rows, 60)
+    return rows
+
+
+def accueil(request):
+    last_date = get_last_date()
+    ctx = get_context_base(request, last_date=last_date)
+
+    kpis = _accueil_kpis()
+    performances, actions_meta = _accueil_performances(last_date)
+    indices_block = _accueil_indices(last_date)
+    bv = _accueil_breadth_volume(last_date)
+    featured = _accueil_featured(last_date)
+    recent_news = _accueil_recent_news()
+
+    # Tri top/flop (rapide en Python, pas la peine de mettre en cache)
+    perf_sorted = sorted(performances, key=lambda x: x["variation"] or 0, reverse=True)
+    top5 = perf_sorted[:5]
+    flop5 = perf_sorted[-5:][::-1] if len(perf_sorted) >= 5 else perf_sorted[::-1]
+
+    breadth = bv["breadth"]
+    breadth_total = breadth["up"] + breadth["down"] + breadth["flat"]
+    breadth_ratio = {
+        "up": round(breadth["up"] / breadth_total * 100, 1) if breadth_total else 0,
+        "down": round(breadth["down"] / breadth_total * 100, 1) if breadth_total else 0,
+        "flat": round(breadth["flat"] / breadth_total * 100, 1) if breadth_total else 0,
+    }
+
+    ticker_tape = [{
+        "ticker": p["ticker"],
+        "cloture": p["cloture"],
+        "variation": p["variation"],
+    } for p in performances]
+
+    heatmap_items = []
+    for p in performances:
+        meta = actions_meta.get(p["ticker"], {})
+        secteur = meta.get("secteur") or "Non classé"
+        nb = meta.get("nombre_actions") or 0
+        cap = (p["cloture"] or 0) * nb if (p["cloture"] and nb) else 0
+        heatmap_items.append({
+            "ticker": p["ticker"],
+            "secteur": secteur,
+            "cloture": p["cloture"],
+            "variation": p["variation"],
+            "cap": cap,
+        })
+
+    nb_actions = kpis["nb_actions"]
+    nb_indices = kpis["nb_indices"]
+    nb_news = kpis["nb_news"]
+    brvm_c = indices_block["brvm_c"]
+    brvm_c_var = indices_block["brvm_c_var"]
+    capi = indices_block["capi"]
+    chart_data = indices_block["chart_data"]
+    volume_total = bv["volume_total"]
 
     ctx.update({
         "nb_actions": nb_actions,
@@ -804,13 +913,9 @@ def analyse_actions(request):
                 indicateurs["obv"] = round(obv_last, 2) if obv_last is not None else None
                 indicateurs["mfi_14"] = round(mfi_last, 2) if mfi_last is not None else None
 
-                # Série volatilité GARCH (si disponible pour ce ticker)
-                _garch_for_verdict = None
-                _gm_for_verdict = GarchModel.objects.filter(action=selected_action).first()
-                if _gm_for_verdict and _gm_for_verdict.vol_conditionnelle_json:
-                    _garch_for_verdict = _gm_for_verdict.vol_conditionnelle_json
-
                 # ===== Verdict synthétique 4 axes (modalités Sikafinance) =====
+                # GARCH n'est pas injecté ici : il sert au sizing/risque,
+                # pas à la direction du signal. Cf. services_verdict.py.
                 indicateurs["verdict"] = compute_verdict(
                     sma20=indicateurs.get("sma_20"),
                     sma50=indicateurs.get("sma_50"),
@@ -824,7 +929,6 @@ def analyse_actions(request):
                     bb_upper=indicateurs.get("bollinger_up"),
                     bb_lower=indicateurs.get("bollinger_low"),
                     natr_series=natr_list,
-                    garch_vol_series=_garch_for_verdict,
                     obv_series=obv_list,
                     mfi_val=mfi_last,
                 )
@@ -907,13 +1011,21 @@ def analyse_actions(request):
 
     # ===== Modèle GARCH (volatilité conditionnelle action-spécifique) =====
     garch_model = None
+    garch_forecast = None
     if selected_action:
         garch_model = GarchModel.objects.filter(action=selected_action).first()
+        # Prévisions analytiques 1j / 5j / 22j à partir des paramètres stockés.
+        # Régime piloté par l'horizon 5j (compromis réactivité/stabilité).
+        try:
+            _fc = forecast_for_action(selected_action, regime_horizon=5)
+            garch_forecast = garch_to_tpl(_fc)
+        except Exception:
+            garch_forecast = None
 
-    # ===== Backtest rétrospectif du verdict 4-axes =====
+    # NB: Le backtest a été migré vers la page dédiée /simulateur-strategie/.
+    # On expose toujours `backtest = None` dans le contexte au cas où des
+    # éléments legacy du template y feraient référence (résilient).
     backtest = None
-    if selected_action:
-        backtest = backtest_action(selected_action)
 
     # ===== Conseil Sikafinance (dernier snapshot) + comparaison verdict technique =====
     conseil_sika = None
@@ -964,6 +1076,7 @@ def analyse_actions(request):
         "conseil_sika": conseil_sika,
         "sika_comparaison": sika_comparaison,
         "garch_model": garch_model,
+        "garch_forecast": garch_forecast,
         "garch_vol_series_json": json.dumps(
             garch_model.vol_conditionnelle_json if garch_model else []
         ),

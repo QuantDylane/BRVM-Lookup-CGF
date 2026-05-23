@@ -177,7 +177,6 @@ class Command(BaseCommand):
                 bb_upper=_val(bb_up, idx),
                 bb_lower=_val(bb_lo, idx),
                 natr_series=natr_window,
-                garch_vol_series=None,  # pas dispo rétrospectivement
                 obv_series=obv_window,
                 mfi_val=_val(mfi14, idx),
             )

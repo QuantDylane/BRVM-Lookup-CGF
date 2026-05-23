@@ -541,6 +541,60 @@ class GarchModel(models.Model):
         return f"{self.action.ticker} — {self.model_type}"
 
 
+class GarchFitHistorique(models.Model):
+    """Cache des paramètres GARCH ajustés sur fenêtres expansives mensuelles.
+
+    Pour éviter le look-ahead bias dans le simulateur, on doit ré-estimer
+    GARCH à partir de DONNÉES ANTÉRIEURES uniquement, à chaque mois du
+    backtest. Re-fit live = lent ; on persiste donc les paramètres dans cette
+    table indexée par ``(action, fin_de_periode)``. Le simulateur lit le
+    cache et ne déclenche un fit que si la combinaison n'existe pas.
+
+    ``fin_de_periode`` est la dernière date prise en compte pour le fit. On
+    utilise des fins de mois ouvrés (dernier jour de cotation du mois). Le
+    type de modèle et les paramètres sont conservés tels qu'ils sortent du
+    fit, comme dans ``GarchModel`` (qui contient la version "courante",
+    écrasée à chaque entraînement).
+
+    Mécanique cache (idempotent) :
+      - UniqueConstraint sur (action, fin_de_periode) → upsert sûr.
+      - Pas de suppression automatique : la base grossit linéairement
+        (~12 lignes/an/action), ce qui reste négligeable.
+    """
+    action = models.ForeignKey(
+        Action, on_delete=models.CASCADE, related_name="garch_fits"
+    )
+    fin_de_periode = models.DateField(
+        db_index=True,
+        help_text="Dernière date incluse dans la fenêtre de calibration",
+    )
+    model_type = models.CharField(max_length=15)  # GARCH / GJR-GARCH / EGARCH / FAILED
+    omega = models.FloatField(null=True, blank=True)
+    alpha = models.FloatField(null=True, blank=True)
+    beta = models.FloatField(null=True, blank=True)
+    gamma = models.FloatField(null=True, blank=True)
+    sigma_T_pct_quotidien = models.FloatField(
+        null=True, blank=True,
+        help_text="σ_T en % quotidien à la fin de la fenêtre",
+    )
+    n_obs = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Cache GARCH (fenêtre)"
+        verbose_name_plural = "Cache GARCH (fenêtres)"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["action", "fin_de_periode"],
+                name="uniq_garchfit_action_fin",
+            ),
+        ]
+        ordering = ["action", "fin_de_periode"]
+
+    def __str__(self):
+        return f"{self.action.ticker} @ {self.fin_de_periode} ({self.model_type})"
+
+
 class SignalHistorique(models.Model):
     """Snapshot rétrospectif du verdict 4-axes pour une action à une date donnée.
 

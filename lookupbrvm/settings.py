@@ -114,3 +114,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Chemin vers les données scrappées
 DATA_DIR = BASE_DIR / "data"
+
+# Cache mémoire local (par process). Les clés sont versionnées par la
+# dernière date d'historique → invalidation automatique après scrape.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "lookupbrvm-default",
+        "TIMEOUT": 300,  # 5 min ; les clés sont versionnées par last_date donc safe plus longtemps
+    }
+}
